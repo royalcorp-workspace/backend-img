@@ -91,8 +91,14 @@ async def test_db_url(pg_container):
 @pytest_asyncio.fixture(scope="function")
 async def test_db_engine(test_db_url):
     """Create a SQLAlchemy engine for testing."""
-    engine = create_async_engine(test_db_url, echo=False)
+    from sqlalchemy import text
+    engine = create_async_engine(
+        test_db_url,
+        connect_args={"server_settings": {"search_path": "fastapi"}},
+        echo=False,
+    )
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE SCHEMA IF NOT EXISTS fastapi"))
         await conn.run_sync(Base.metadata.create_all)
     yield engine
     async with engine.begin() as conn:

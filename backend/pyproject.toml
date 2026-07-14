@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "fastapi-boilerplate"
 version = "0.19.0"
 description = "Modular FastAPI starter — vertical slices, swappable infrastructure, plugin-ready."
-authors = [{ name = "Benav Labs", email = "contact@benav.io" }]
+authors = [{ email = "contact@benav.io" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,7 @@ dependencies = [
     "taskiq-redis>=1.1.2",
     "taskiq-aio-pika>=0.4.3",
     "user-agents>=2.2.0",
+    "cryptography>=49.0.0",
 ]
 
 [project.optional-dependencies]
@@ -131,3 +132,8 @@ extend-select = ["UP006", "UP007", "UP035", "UP039", "PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]

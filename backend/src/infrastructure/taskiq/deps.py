@@ -13,6 +13,7 @@ settings = get_settings()
 
 taskiq_engine = create_async_engine(
     settings.DATABASE_URL,
+    connect_args={"server_settings": {"search_path": "public"}},
     echo=False,
     future=True,
     poolclass=NullPool,

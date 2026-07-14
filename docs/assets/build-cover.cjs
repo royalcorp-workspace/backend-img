@@ -1,4 +1,4 @@
-// Generates the Fastro (open-source FastAPI boilerplate) cover as transparent
+// Generates the Fastro (open-source Backend IMG Store) cover as transparent
 // light/dark PNGs, used at the top of the docs.
 // Run: NODE_PATH=<a sharp install> node docs/assets/build-cover.cjs
 const path = require('path');

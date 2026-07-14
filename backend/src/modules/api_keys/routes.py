@@ -41,9 +41,51 @@ router = APIRouter(tags=["API Keys"])
     Store it securely as it cannot be retrieved again.
     """,
     responses={
-        201: {"description": "API key created successfully"},
-        400: {"description": "Invalid API key data"},
-        401: {"description": "Authentication required"},
+        201: {
+            "description": "API key created successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 1,
+                        "user_id": 1,
+                        "name": "My API Key",
+                        "permissions": {"read": True, "write": False},
+                        "usage_limits": {"requests_per_day": 1000},
+                        "expires_at": None,
+                        "key_metadata": None,
+                        "key_prefix": "ak_live_8f3a",
+                        "last_used_at": None,
+                        "last_used_ip": None,
+                        "is_active": True,
+                        "created_at": "2024-01-01T00:00:00",
+                        "updated_at": None,
+                        "api_key": "ak_live_8f3a9c2b1d4e5f6a7b8c9d0e1f2a3b4c",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid API key data",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Invalid API key data",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="Created API key with full key (shown only once)",
 )
@@ -82,8 +124,47 @@ async def create_api_key(
     For security, only the key prefix is shown, not the full key.
     """,
     responses={
-        200: {"description": "API keys retrieved successfully"},
-        401: {"description": "Authentication required"},
+        200: {
+            "description": "API keys retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "data": [
+                            {
+                                "id": 1,
+                                "user_id": 1,
+                                "name": "My API Key",
+                                "permissions": {"read": True, "write": False},
+                                "usage_limits": {"requests_per_day": 1000},
+                                "expires_at": None,
+                                "key_metadata": None,
+                                "key_prefix": "ak_live_8f3a",
+                                "last_used_at": None,
+                                "last_used_ip": None,
+                                "is_active": True,
+                                "created_at": "2024-01-01T00:00:00",
+                                "updated_at": None,
+                            }
+                        ],
+                        "total_count": 1,
+                        "has_more": False,
+                        "page": 1,
+                        "items_per_page": 50,
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="Paginated list of user's API keys",
 )
@@ -129,10 +210,61 @@ async def get_user_api_keys(
     Returns comprehensive key information including usage limits and permissions.
     """,
     responses={
-        200: {"description": "API key details retrieved successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Access denied to this API key"},
-        404: {"description": "API key not found"},
+        200: {
+            "description": "API key details retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 1,
+                        "user_id": 1,
+                        "name": "My API Key",
+                        "permissions": {"read": True, "write": False},
+                        "usage_limits": {"requests_per_day": 1000},
+                        "expires_at": None,
+                        "key_metadata": None,
+                        "key_prefix": "ak_live_8f3a",
+                        "last_used_at": None,
+                        "last_used_ip": None,
+                        "is_active": True,
+                        "created_at": "2024-01-01T00:00:00",
+                        "updated_at": None,
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Access denied to this API key",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Access denied to this API key",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "API key not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "API key not found",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="API key details",
 )
@@ -172,11 +304,72 @@ async def get_api_key(
     Users can only update their own API keys.
     """,
     responses={
-        200: {"description": "API key updated successfully"},
-        400: {"description": "Invalid update data"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Access denied to this API key"},
-        404: {"description": "API key not found"},
+        200: {
+            "description": "API key updated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 1,
+                        "user_id": 1,
+                        "name": "Updated API Key",
+                        "permissions": {"read": True, "write": True},
+                        "usage_limits": {"requests_per_day": 2000},
+                        "expires_at": None,
+                        "key_metadata": None,
+                        "key_prefix": "ak_live_8f3a",
+                        "last_used_at": None,
+                        "last_used_ip": None,
+                        "is_active": True,
+                        "created_at": "2024-01-01T00:00:00",
+                        "updated_at": "2024-01-02T00:00:00",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Invalid update data",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Invalid update data",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Access denied to this API key",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Access denied to this API key",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "API key not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "API key not found",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="Updated API key details",
 )
@@ -222,9 +415,39 @@ async def update_api_key(
     """,
     responses={
         204: {"description": "API key deleted successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Access denied to this API key"},
-        404: {"description": "API key not found"},
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Access denied to this API key",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Access denied to this API key",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "API key not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "API key not found",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
 )
 async def delete_api_key(
@@ -266,10 +489,71 @@ async def delete_api_key(
     Includes details like endpoints used, response times, costs, and errors.
     """,
     responses={
-        200: {"description": "Usage history retrieved successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Access denied to this API key"},
-        404: {"description": "API key not found"},
+        200: {
+            "description": "Usage history retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "data": [
+                            {
+                                "id": 1,
+                                "api_key_id": 1,
+                                "user_id": 1,
+                                "endpoint": "/api/v1/chat/completions",
+                                "method": "POST",
+                                "status_code": 200,
+                                "tokens_used": 150,
+                                "cost_microcents": 12,
+                                "response_time_ms": 340,
+                                "ip_address": "203.0.113.5",
+                                "user_agent": "Mozilla/5.0",
+                                "error_message": None,
+                                "usage_metadata": None,
+                                "created_at": "2024-01-01T00:00:00",
+                                "updated_at": None,
+                            }
+                        ],
+                        "total_count": 1,
+                        "has_more": False,
+                        "page": 1,
+                        "items_per_page": 100,
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Access denied to this API key",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Access denied to this API key",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "API key not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "API key not found",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="Paginated list of usage records",
 )
@@ -324,10 +608,62 @@ async def get_key_usage(
     - Error breakdown
     """,
     responses={
-        200: {"description": "Analytics retrieved successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Access denied to this API key"},
-        404: {"description": "API key not found"},
+        200: {
+            "description": "Analytics retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "api_key_id": 1,
+                        "total_requests": 1200,
+                        "successful_requests": 1150,
+                        "failed_requests": 50,
+                        "total_tokens": 180000,
+                        "total_cost_microcents": 14400,
+                        "average_response_time_ms": 320.5,
+                        "most_used_endpoints": [
+                            {"endpoint": "/api/v1/chat/completions", "count": 800}
+                        ],
+                        "error_breakdown": {"500": 30, "429": 20},
+                        "usage_by_day": [
+                            {"date": "2024-01-01", "requests": 120}
+                        ],
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        403: {
+            "description": "Access denied to this API key",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Access denied to this API key",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "API key not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "API key not found",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="Usage analytics for the API key",
 )
@@ -372,8 +708,48 @@ async def get_key_analytics(
     This endpoint provides a dashboard-style overview of the user's API key usage.
     """,
     responses={
-        200: {"description": "User summary retrieved successfully"},
-        401: {"description": "Authentication required"},
+        200: {
+            "description": "User summary retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "user_id": 1,
+                        "total_keys": 3,
+                        "active_keys": 2,
+                        "total_requests": 5400,
+                        "total_cost_microcents": 43200,
+                        "keys": [
+                            {
+                                "id": 1,
+                                "user_id": 1,
+                                "name": "My API Key",
+                                "permissions": {"read": True, "write": False},
+                                "usage_limits": {"requests_per_day": 1000},
+                                "expires_at": None,
+                                "key_metadata": None,
+                                "key_prefix": "ak_live_8f3a",
+                                "last_used_at": None,
+                                "last_used_ip": None,
+                                "is_active": True,
+                                "created_at": "2024-01-01T00:00:00",
+                                "updated_at": None,
+                            }
+                        ],
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Authentication required",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
     },
     response_description="Comprehensive API key summary for the user",
 )

@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fastapi-boilerplate-cli"
 version = "0.1.0"
-description = "bp — developer/operator CLI for the FastAPI boilerplate. Hosts in-tree commands and discovers third-party plugins."
-authors = [{ name = "Benav Labs", email = "contact@benav.io" }]
+description = "bp — developer/operator CLI for the Backend IMG Store. Hosts in-tree commands and discovers third-party plugins."
+authors = [{ email = "contact@benav.io" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.11"

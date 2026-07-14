@@ -31,6 +31,7 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
 
     google_id: str | None = None
     github_id: str | None = None
+    firebase_uid: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
@@ -53,6 +54,7 @@ class UserRead(BaseModel):
     is_superuser: bool = False
     email_verified: bool = False
     oauth_provider: str | None = None
+    firebase_uid: str | None = None
 
 
 class UserCreate(UserBase):
@@ -84,8 +86,10 @@ class UserCreateInternal(UserBase):
     """Internal schema for user creation with hashed password."""
 
     hashed_password: str
+    profile_image_url: str = "https://www.profileimageurl.com"
     google_id: str | None = None
     github_id: str | None = None
+    firebase_uid: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
@@ -122,6 +126,7 @@ class UserUpdate(BaseModel):
     ]
     google_id: str | None = None
     github_id: str | None = None
+    firebase_uid: str | None = None
     oauth_provider: str | None = None
     email_verified: bool | None = None
     oauth_updated_at: datetime | None = None

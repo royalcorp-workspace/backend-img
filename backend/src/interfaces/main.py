@@ -19,7 +19,7 @@ async def lifespan_with_security(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.PRODUCTION_SECURITY_VALIDATION_ENABLED:
         validate_production_security(settings)
 
-    default_lifespan = lifespan_factory(settings)
+    default_lifespan = lifespan_factory(settings, create_tables_on_startup=settings.CREATE_TABLES_ON_STARTUP)
 
     async with default_lifespan(app):
         yield
@@ -36,28 +36,33 @@ app = create_application(
     docs_production_dependency=None,
     enable_gzip=None,
     openapi_prefix=None,
-    title="FastAPI Boilerplate",
+    title="Backend IMG Store",
     summary="A modular FastAPI starter with a plugin system",
     description="""
-    # FastAPI Boilerplate
+    # Backend IMG Store
 
-    A modern FastAPI starter with:
+    Available features:
 
-    * Vertical-slice modules and a clean infrastructure layer
-    * Session-based auth with OAuth providers
-    * Swappable cache, queue, and rate-limit backends
-    * SQLAdmin admin UI
+    * Account & Login
+    * Users
+    * API Keys
+    * Categories
+    * Customers
+    * Products
+    * Inventory
+    * Orders
+    * Vouchers
+    * Reviews
+    * Membership Tiers
+    * Rate Limiting
+    * Couriers
+    * Payment Methods
+    * Stores & Channels (Groups, Tiers, Channel Groups)
+    * Shipping Address Rates
+    * Web Content (About Us, Blog, FAQ, How To Return, Privacy, Terms, Warranty)
+    * Admin Panel
     """,
     version="0.19.0",
-    contact={
-        "name": "Benav Labs",
-        "url": "https://github.com/benavlabs/FastAPI-boilerplate",
-        "email": "contact@benav.io",
-    },
-    license_info={
-        "name": "MIT",
-        "identifier": "MIT",
-    },
     openapi_tags=None,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -72,3 +77,5 @@ create_admin_interface(app)
 async def health_check() -> dict[str, str]:
     """Health check endpoint for monitoring and load balancers."""
     return {"status": "healthy"}
+
+

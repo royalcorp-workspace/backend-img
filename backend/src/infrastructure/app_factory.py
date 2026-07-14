@@ -320,7 +320,11 @@ def create_application(
 
         @docs_router.get("/docs", include_in_schema=False)
         async def get_swagger_documentation() -> fastapi.responses.HTMLResponse:
-            return get_swagger_ui_html(openapi_url="/openapi.json", title="docs")
+            return get_swagger_ui_html(
+                openapi_url="/openapi.json",
+                title="docs",
+                swagger_ui_parameters={"tagsSorter": "alpha", "operationsSorter": "alpha"},
+            )
 
         @docs_router.get("/redoc", include_in_schema=False)
         async def get_redoc_documentation() -> fastapi.responses.HTMLResponse:
@@ -328,12 +332,15 @@ def create_application(
 
         @docs_router.get("/openapi.json", include_in_schema=False)
         async def openapi() -> dict[str, Any]:
-            return get_openapi(
+            schema = get_openapi(
                 title=metadata.get("title", "API"),
                 version=metadata.get("version", "0.1.0"),
                 description=metadata.get("description", ""),
                 routes=application.routes,
             )
+            if "tags" in schema:
+                schema["tags"] = sorted(schema["tags"], key=lambda t: t.get("name", "").lower())
+            return schema
 
         application.include_router(docs_router)
 

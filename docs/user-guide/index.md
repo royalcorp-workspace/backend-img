@@ -1,10 +1,10 @@
 # User Guide
 
-This user guide provides comprehensive information about using and understanding the FastAPI Boilerplate. Whether you're building your first API or looking to understand advanced features, this guide covers everything you need to know.
+This user guide provides comprehensive information about using and understanding the Backend IMG Store. Whether you're building your first API or looking to understand advanced features, this guide covers everything you need to know.
 
 ## What You'll Learn
 
-This guide covers all aspects of working with the FastAPI Boilerplate:
+This guide covers all aspects of working with the Backend IMG Store:
 
 ### Project Understanding
 - **[Project Structure](project-structure.md)** - Navigate the codebase organization and understand architectural decisions
@@ -57,7 +57,7 @@ Powered by [SQLAdmin](https://github.com/smithyhq/sqladmin) - a flexible admin i
 Before diving into this guide, ensure you have:
 
 - Completed the [Getting Started](../getting-started/index.md) section
-- A running FastAPI Boilerplate instance
+- A running Backend IMG Store instance
 - Basic understanding of Python, FastAPI, and REST APIs
 - Familiarity with SQL databases (PostgreSQL knowledge is helpful)
 

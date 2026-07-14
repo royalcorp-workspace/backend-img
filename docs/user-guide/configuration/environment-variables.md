@@ -237,7 +237,7 @@ ADMIN_ENABLED=true              # enables /admin
 
 ```env
 DEBUG=false
-APP_NAME=FastAPI Boilerplate
+APP_NAME=Backend IMG Store
 APP_DESCRIPTION=Modular FastAPI starter
 VERSION=0.19.0
 CONTACT_NAME=Support

@@ -1,12 +1,12 @@
-# Fastro · The Benav Labs FastAPI Boilerplate
+# Fastro · The Backend IMG Store
 
 <p align="center">
-  <img src="assets/fastro-cover-light.png#only-light" alt="Fastro - open-source FastAPI boilerplate" width="100%">
-  <img src="assets/fastro-cover-dark.png#only-dark" alt="Fastro - open-source FastAPI boilerplate" width="100%">
+  <img src="assets/fastro-cover-light.png#only-light" alt="Fastro - open-source Backend IMG Store" width="100%">
+  <img src="assets/fastro-cover-dark.png#only-dark" alt="Fastro - open-source Backend IMG Store" width="100%">
 </p>
 
 <p align="center">
-  <i>A production-ready FastAPI boilerplate to speed up your development.</i>
+  <i>A production-ready Backend IMG Store to speed up your development.</i>
 </p>
 
 <p align="center">
@@ -27,9 +27,9 @@
   </a>
 </p>
 
-## What is FastAPI Boilerplate?
+## What is Backend IMG Store?
 
-FastAPI Boilerplate is a comprehensive, production-ready template that provides everything you need to build scalable, async APIs using modern Python technologies. It combines the power of FastAPI with industry best practices to give you a solid foundation for your next project.
+Backend IMG Store is a comprehensive, production-ready template that provides everything you need to build scalable, async APIs using modern Python technologies. It combines the power of FastAPI with industry best practices to give you a solid foundation for your next project.
 
 ## Core Technologies
 
@@ -136,6 +136,6 @@ Fastro is the free **foundation**. **[FastroAI](https://fastro.ai)** builds on t
 
 <hr>
 <a href="https://benav.io">
-  <img src="assets/benav-labs-banner-light.png#only-light" alt="Benav Labs - benav.io"/>
-  <img src="assets/benav-labs-banner-dark.png#only-dark" alt="Benav Labs - benav.io"/>
+  <img src="assets/benav-labs-banner-light.png#only-light" alt="benav.io"/>
+  <img src="assets/benav-labs-banner-dark.png#only-dark" alt="benav.io"/>
 </a>

@@ -1,6 +1,6 @@
 # Getting Started
 
-Welcome to the FastAPI Boilerplate! This guide will have you up and running in just a few minutes.
+Welcome to the Backend IMG Store! This guide will have you up and running in just a few minutes.
 
 ## Quick Start (5 minutes)
 

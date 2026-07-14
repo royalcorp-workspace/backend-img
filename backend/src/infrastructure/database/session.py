@@ -7,6 +7,7 @@ from ..config.settings import settings
 
 engine = create_async_engine(
     settings.DATABASE_URL,
+    connect_args={"server_settings": {"search_path": "public"}},
     echo=False,
     future=True,
     pool_size=settings.POSTGRES_POOL_SIZE,

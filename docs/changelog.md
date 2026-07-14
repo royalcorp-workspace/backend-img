@@ -1,8 +1,8 @@
-# Fastro - The Benav Labs FastAPI boilerplate Changelog
+# Fastro - The Backend IMG Store Changelog
 
 ## Introduction
 
-The Changelog documents all notable changes to the Fastro FastAPI boilerplate, organized by version. For releases before v0.18.0, see [GitHub releases](https://github.com/benavlabs/FastAPI-boilerplate/releases).
+The Changelog documents all notable changes to the Fastro Backend IMG Store, organized by version. For releases before v0.18.0, see [GitHub releases](https://github.com/benavlabs/FastAPI-boilerplate/releases).
 
 For the full narrative on each release — rationale, decisions, migration guide — see the corresponding GitHub release page.
 
@@ -72,7 +72,7 @@ We didn't iterate on the v0.17.0 codebase to get here. We **rebased the project 
 
 fastroai-template is the production-tested template we use internally (and sell) for AI SaaS products. It's been running real apps for months and the structural choices (three-layer architecture, vertical-slice modules, server-side sessions, SQLAdmin, Taskiq, swappable infrastructure) have proven themselves under load. Reinventing all of that for FastAPI-boilerplate would have meant another six months of polish; rebasing meant we could ship the good parts on day one.
 
-The trade-off is that fastroai-template carries a lot of stuff this boilerplate's audience doesn't necessarily need: a Stripe integration, subscription/credits/entitlements modeling, AI agent orchestration, usage tracking with cost calculation, OAuth-specific provisioning for SaaS, an Astro frontend. Excellent for an AI SaaS starter, wrong for a general FastAPI boilerplate.
+The trade-off is that fastroai-template carries a lot of stuff this boilerplate's audience doesn't necessarily need: a Stripe integration, subscription/credits/entitlements modeling, AI agent orchestration, usage tracking with cost calculation, OAuth-specific provisioning for SaaS, an Astro frontend. Excellent for an AI SaaS starter, wrong for a general Backend IMG Store.
 
 **So this release is fastroai-template minus the SaaS/AI parts, plus a plugin system that fastroai-template doesn't have.** What's left is the structural skeleton; the parts that any FastAPI app needs and that we've watched hold up in real use:
 

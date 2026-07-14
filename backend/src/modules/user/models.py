@@ -8,6 +8,7 @@ from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
 
 if TYPE_CHECKING:
+    from ..rbac.models import Role
     from ..tier.models import Tier
 
 
@@ -43,12 +44,16 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     google_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
     github_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
+    firebase_uid: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, default=None)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), default=None)
     email_verified: Mapped[bool] = mapped_column(default=False)
     oauth_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
+    roles: Mapped[list["Role"]] = relationship(
+        "Role", secondary="rbac_user_roles", back_populates="users", lazy="selectin", init=False
+    )
 
     @property
     def is_active(self) -> bool:

@@ -1,11 +1,11 @@
 [project]
-site_name = "Fastro · FastAPI Boilerplate"
+site_name = "Fastro · Backend IMG Store"
 site_description = "Production-ready FastAPI starter with sessions, OAuth, SQLAdmin, Taskiq, Redis caching, and a plugin-aware CLI."
 site_url = "https://benavlabs.github.io/FastAPI-boilerplate"
 docs_dir = "docs"
 site_dir = "site"
 
-copyright = "&copy; 2026 Benav Labs"
+copyright = "&copy; 2026"
 
 extra_css = ["stylesheets/extra.css"]
 
@@ -58,7 +58,7 @@ toggle.name = "Switch to light mode"
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
 link = "https://github.com/benavlabs/fastapi-boilerplate"
-name = "FastAPI boilerplate on GitHub"
+name = "Backend IMG Store on GitHub"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/python"

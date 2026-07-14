@@ -1,7 +1,7 @@
 # bp — FastAPI-boilerplate CLI
 
 `bp` is the developer/operator command-line tool for projects built on the
-FastAPI boilerplate. It generates deployment artifacts, helps prepare the
+Backend IMG Store. It generates deployment artifacts, helps prepare the
 runtime environment, and serves as the host for plugin commands and feature
 generators.
 

@@ -6,7 +6,7 @@ Join our vibrant Discord community to connect with other developers, get help, s
 
 **[Join our Discord community](https://discord.com/invite/TEmPs22gqB)**
 
-Welcome to the **Benav Labs** community! Our Discord server is the central hub where developers using our FastAPI boilerplate and other products can connect, collaborate, and grow together.
+Welcome to our community! Our Discord server is the central hub where developers using our Backend IMG Store and other products can connect, collaborate, and grow together.
 
 ## 🏠 What to Expect
 
@@ -18,7 +18,7 @@ Our community is built on respect and collaboration. We maintain:
 
 - A welcoming environment for developers of all skill levels
 - Clear guidelines to keep discussions productive and on-topic
-- Direct feedback channels to the Benav Labs team
+- Direct feedback channels to the team
 - A safe space for sharing projects and asking questions
 
 ---
@@ -31,7 +31,7 @@ Our community is built on respect and collaboration. We maintain:
 
 - **📚 Products**
 
-    Learn about the Benav Labs ecosystem, including FastroAI and other tools. Get updates on new features and product roadmaps.
+    Learn about our ecosystem, including FastroAI and other tools. Get updates on new features and product roadmaps.
 
 - **📸 Showcase**
 
@@ -43,7 +43,7 @@ Our community is built on respect and collaboration. We maintain:
 
 - **📣 Announcements**
 
-    Official updates from the Benav Labs team about new releases, important changes, and community events.
+    Official updates from the team about new releases, important changes, and community events.
 
 - **💬 General**
 
@@ -59,11 +59,11 @@ Our community is built on respect and collaboration. We maintain:
 
 By joining our Discord community, you get:
 
-- **Direct support** from the Benav Labs team and experienced community members
+    - **Direct support** from the team and experienced community members
 - **Early insights** into new features and product developments
 - **Networking opportunities** with developers building similar projects
 - **Project showcase** opportunities for visibility and feedback
-- **Real-time help** with FastAPI boilerplate and development questions
+- **Real-time help** with Backend IMG Store and development questions
 
 ## 🎯 Getting Started
 
@@ -89,7 +89,7 @@ We actively encourage feedback and suggestions! The community provides multiple 
 - **Discord Server:** [discord.gg/TEmPs22gqB](https://discord.com/invite/TEmPs22gqB)
 - **FastroAI:** [benav.io/fastroai](https://benav.io/fastroai)
 - **Blog:** [fastro.ai/blog](https://fastro.ai/blog)
-- **Benav Labs:** [benav.io](https://benav.io)
+    - **Website:** [benav.io](https://benav.io)
 
 ---
 

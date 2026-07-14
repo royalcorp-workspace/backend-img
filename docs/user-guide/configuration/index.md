@@ -1,6 +1,6 @@
 # Configuration
 
-Learn how to configure your FastAPI Boilerplate application for different environments. Configuration is driven by environment variables and validated by Python settings classes.
+Learn how to configure your Backend IMG Store application for different environments. Configuration is driven by environment variables and validated by Python settings classes.
 
 ## What You'll Learn
 

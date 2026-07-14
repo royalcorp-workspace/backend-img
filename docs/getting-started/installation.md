@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers different ways to install the FastAPI Boilerplate depending on your needs.
+This guide covers different ways to install the Backend IMG Store depending on your needs.
 
 ## System Requirements
 

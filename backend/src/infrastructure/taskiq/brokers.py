@@ -33,8 +33,15 @@ def _create_redis_broker() -> AsyncBroker:
     password_part = f":{redis_password}@" if redis_password else ""
     redis_url = f"redis://{password_part}{redis_host}:{redis_port}/{redis_db}"
 
-    broker = ListQueueBroker(url=redis_url, queue_name="default").with_result_backend(
-        RedisAsyncResultBackend(redis_url=redis_url)
+    broker = ListQueueBroker(
+        url=redis_url,
+        queue_name="default",
+        socket_timeout=None,
+    ).with_result_backend(
+        RedisAsyncResultBackend(
+            redis_url=redis_url,
+            socket_timeout=None,
+        )
     )
 
     return broker

@@ -1,4 +1,4 @@
-<h1 align="center">Fastro · The Benav Labs FastAPI Boilerplate</h1>
+<h1 align="center">Fastro · The Backend IMG Store</h1>
 <p align="center" markdown=1>
   <i><b>Batteries-included FastAPI starter</b> - vertical-slice modules, swappable infrastructure, plugin-ready CLI.</i>
 </p>
@@ -7,7 +7,7 @@
   <a href="https://benavlabs.github.io/FastAPI-boilerplate">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/assets/fastro-cover-dark.png">
-      <img src="docs/assets/fastro-cover-light.png" alt="Fastro - open-source FastAPI boilerplate with auth, CRUD, jobs, caching and rate-limits" width="100%">
+      <img src="docs/assets/fastro-cover-light.png" alt="Fastro - open-source Backend IMG Store with auth, CRUD, jobs, caching and rate-limits" width="100%">
     </picture>
   </a>
 </p>
@@ -202,12 +202,12 @@ This project was inspired by a few projects, it's based on them with things chan
 
 ## Contact
 
-Benav Labs – [benav.io](https://benav.io), [discord server](https://discord.com/invite/TEmPs22gqB)
+Contact: [benav.io](https://benav.io), [discord server](https://discord.com/invite/TEmPs22gqB)
 
 <hr>
 <a href="https://benav.io">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/benav-labs-banner-dark.png">
-    <img src="docs/assets/benav-labs-banner-light.png" alt="Benav Labs - benav.io" width="100%"/>
+    <img src="docs/assets/benav-labs-banner-light.png" alt="benav.io" width="100%"/>
   </picture>
 </a>

@@ -246,6 +246,8 @@ class AuthSettings(BaseSettings):
     OAUTH_GITHUB_CLIENT_SECRET: str = config("OAUTH_GITHUB_CLIENT_SECRET", default="")
     OAUTH_REDIRECT_BASE_URL: str = config("OAUTH_REDIRECT_BASE_URL", default="http://localhost:8000")
 
+    FIREBASE_PROJECT_ID: str = config("FIREBASE_PROJECT_ID", default="")
+
 
 class APISettings(BaseSettings):
     """API-related settings."""
@@ -257,7 +259,7 @@ class AppSettings(BaseSettings):
     """Application-related settings."""
 
     # Note: For API documentation, prefer using API_* fields in APIDocSettings
-    APP_NAME: str = config("APP_NAME", default="FastAPI Boilerplate")
+    APP_NAME: str = config("APP_NAME", default="Backend IMG Store")
     APP_DESCRIPTION: str = config("APP_DESCRIPTION", default="Modular FastAPI starter")
     DEBUG: bool = config("DEBUG", default=False, cast=bool)
     VERSION: str = config("VERSION", default="0.1.0")
@@ -360,6 +362,13 @@ class TaskiqSettings(BaseSettings):
             raise ValueError(f"Unsupported broker type: {self.TASKIQ_BROKER_TYPE}")
 
 
+class JDESettings(BaseSettings):
+    """JDE Integration configuration settings."""
+
+    JDE_BASE_URL: str = config("JDE_BASE_URL", default="http://172.16.8.22:8000")
+    JDE_API_KEY: str = config("JDE_API_KEY", default="royal-jde-integration-2026")
+
+
 class Settings(
     EnvironmentSettings,
     DatabaseSettings,
@@ -376,6 +385,7 @@ class Settings(
     SecuritySettings,
     LoggingSettings,
     TaskiqSettings,
+    JDESettings,
 ):
     """Main settings class that combines all setting categories."""
 

@@ -3,11 +3,13 @@ from typing import Annotated, Any
 from crudauth import Principal
 from crudauth.exceptions import UnauthorizedException
 from crudauth.oauth import OAuthState
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 
 from ...modules.user.crud import crud_users
 from ...modules.user.enums import OAuthProvider
+from ...modules.user.firebase_auth import verify_firebase_id_token
+from ...modules.user.schemas import UserCreateInternal
 from ..dependencies import AsyncSessionDep, OAuth2FormDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
@@ -60,6 +62,144 @@ async def login(
         request,
         user_id=crud_auth.repo.user_id(user),
         metadata={"login_type": "password", "username": crud_auth.repo.get(user, "username")},
+    )
+    crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
+
+    return {"csrf_token": csrf_token}
+
+
+from pydantic import BaseModel, Field
+
+class FirebaseLoginRequest(BaseModel):
+    firebase_token: str = Field(
+        ...,
+        description="Firebase ID Token (JWT) yang didapatkan setelah login dari client SDK Firebase.",
+        examples=["eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMyJ9.eyJnZW1pbmkiOiJhbnRpZ3Jhdml0eSJ9..."]
+    )
+
+class FirebaseLoginResponse(BaseModel):
+    csrf_token: str = Field(
+        ...,
+        description="CSRF Token untuk mengamankan request berikutnya.",
+        examples=["a1b2c3d4e5f6g7h8..."]
+    )
+
+@router.post(
+    "/firebase-login",
+    summary="Firebase Login",
+    description="""
+            Authenticates a user using a Firebase ID token.
+
+            This endpoint accepts a Firebase ID token, verifies it against Google public
+            certificates, and creates a local session for the user. The flow mirrors the
+            Laravel implementation:
+            - Decode the Firebase JWT header to get the key ID
+            - Fetch Google public certificates (cached for 1 hour)
+            - Verify the RSA-SHA256 signature
+            - Validate standard claims (aud, iss, exp, iat)
+            - Upsert user in the database and create a session
+            """,
+    response_model=FirebaseLoginResponse,
+    responses={
+        200: {
+            "description": "Login successful, session created",
+            "content": {
+                "application/json": {
+                    "example": {"csrf_token": "a1b2c3d4e5f6g7h8i9j0..."}
+                }
+            }
+        },
+        401: {
+            "description": "Invalid or expired Firebase token",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid or expired Firebase token"}
+                }
+            }
+        },
+        422: {
+            "description": "Missing firebase_token or invalid claims",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Field firebase_token wajib diisi."}
+                }
+            }
+        },
+    },
+    response_description="CSRF token for use in subsequent requests",
+)
+async def firebase_login(
+    request: Request,
+    db: AsyncSessionDep,
+    response: Response,
+    body: FirebaseLoginRequest,
+) -> dict[str, str]:
+    firebase_token = body.firebase_token
+
+    verified_claims = verify_firebase_id_token(firebase_token)
+    if verified_claims is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired Firebase token")
+
+    email = verified_claims.get("email")
+    firebase_uid = verified_claims.get("sub")
+    display_name = verified_claims.get("name")
+    photo_url = verified_claims.get("picture")
+
+    sign_in_provider = verified_claims.get("firebase", {}).get("sign_in_provider", "unknown")
+    is_google_login = sign_in_provider == "google.com"
+    auth_provider = "google" if is_google_login else sign_in_provider
+
+    if not email or not firebase_uid:
+        logger.warning("Firebase token missing email or uid", {"claims": verified_claims})
+        raise HTTPException(status_code=422, detail="Firebase token does not contain required user info")
+
+    user = await crud_users.get_multi(db=db, email=email, is_deleted=False)
+    matched = None
+    if user.get("data"):
+        for u in user["data"]:
+            if u.get("firebase_uid") == firebase_uid or u.get("email") == email:
+                matched = u
+                break
+
+    if matched:
+        update_data: dict[str, Any] = {
+            "firebase_uid": firebase_uid,
+            "oauth_provider": auth_provider,
+            "email_verified": True,
+        }
+        if display_name:
+            update_data["name"] = display_name
+        if photo_url:
+            update_data["profile_image_url"] = photo_url
+        await crud_users.update(db=db, object=update_data, id=matched["id"])
+        user_id = matched["id"]
+        username = matched.get("username", "")
+    else:
+        username = email.split("@")[0]
+        user_in = UserCreateInternal(
+            name=display_name or email,
+            username=username,
+            email=email,
+            hashed_password="",
+            firebase_uid=firebase_uid,
+            oauth_provider=auth_provider,
+            email_verified=True,
+            profile_image_url=photo_url or "https://www.profileimageurl.com",
+        )
+        created = await crud_users.create(db=db, object=user_in)
+        user_id = created.get("id") if isinstance(created, dict) else getattr(created, "id")
+        username = created.get("username", username) if isinstance(created, dict) else getattr(created, "username", username)
+
+    session_id, csrf_token = await crud_auth.sessions.create_session(
+        request,
+        user_id=user_id,
+        metadata={
+            "login_type": "firebase",
+            "auth_provider": auth_provider,
+            "firebase_uid": firebase_uid,
+            "username": username,
+        },
+        expiration_seconds=3600, # Firebase login session expires in 1 hour
     )
     crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 

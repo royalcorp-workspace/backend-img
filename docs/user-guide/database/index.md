@@ -1,6 +1,6 @@
 # Database Layer
 
-Learn how to work with the database layer in the FastAPI Boilerplate. This section covers everything you need to store and retrieve data effectively.
+Learn how to work with the database layer in the Backend IMG Store. This section covers everything you need to store and retrieve data effectively.
 
 ## What You'll Learn
 

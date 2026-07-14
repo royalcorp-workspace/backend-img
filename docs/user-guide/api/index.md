@@ -1,6 +1,6 @@
 # API Development
 
-Learn how to build REST APIs with the FastAPI Boilerplate. This section covers everything you need to create robust, production-ready APIs.
+Learn how to build REST APIs with the Backend IMG Store. This section covers everything you need to create robust, production-ready APIs.
 
 ## What You'll Learn
 
