@@ -8,7 +8,10 @@ from taskiq.state import TaskiqState
 
 from .brokers import default_broker
 
-logger = logging.getLogger(__name__)
+from ..logging import configure_logging, get_logger
+
+configure_logging()
+logger = get_logger(__name__)
 
 
 async def startup_taskiq_worker(state: TaskiqState) -> None:

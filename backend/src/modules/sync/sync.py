@@ -1,39 +1,33 @@
 import json
-import logging
-import logging.handlers
 import re
-from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from taskiq import TaskiqDepends
 
+from ...infrastructure.logging.receiver import get_receiver_logger
 from ...infrastructure.taskiq.brokers import default_broker
 from ...infrastructure.taskiq.deps import get_db_session
-from ..customer.models import Address, Customer
+from ..customer.models import Customer
 from ..product.models import ProductVariant
-from ..user.models import User
-
-# Setup dedicated file logger for POS sync
-BACKEND_DIR = Path(__file__).resolve().parents[3]
-LOGS_DIR = BACKEND_DIR / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-SYNC_LOG_FILE = LOGS_DIR / "pos_sync.log"
-
-sync_file_handler = logging.handlers.TimedRotatingFileHandler(
-    SYNC_LOG_FILE, when="midnight", interval=1, backupCount=30, encoding="utf-8"
+from ..store.models import (
+    Store,
+    StoreChannel,
+    StoreChannelGroup,
+    StoreGroup,
+    StoreTier,
 )
-sync_file_handler.suffix = "%Y-%m-%d"
-sync_file_handler.extMatch = r"^\d{4}-\d{2}-\d{2}(\.\w+)?$"
-sync_file_formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s]: %(message)s")
-sync_file_handler.setFormatter(sync_file_formatter)
-sync_file_handler.setLevel(logging.INFO)
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.addHandler(sync_file_handler)
+# Dedicated daily-rotating loggers per receiver endpoint
+item_branch_logger = get_receiver_logger("item-branch", "item-branch")
+base_price_logger = get_receiver_logger("base-price", "base-price")
+customer_master_logger = get_receiver_logger("customer-master", "customer-master")
+
+# Default tier used for stores created from JDE branch sync
+DEFAULT_STORE_TIER_CODE = "DEFAULT"
+DEFAULT_STORE_TIER_NAME = "Default"
 
 
 def safe_int(val: Any) -> int:
@@ -79,89 +73,186 @@ def normalize_rowset(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-async def sync_item_branch_data(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
-    """Execute synchronization of JDE item-branch (inventory stocks) into database."""
-    rowset = normalize_rowset(payload)
-    total_items = len(rowset)
-    logger.info(f"Memulai sinkronisasi Item Branch. Total data: {total_items}")
+def _extract_branches(payload: Any) -> list[dict[str, Any]]:
+    """Collect every ``branches`` entry from a JDE item-branch payload.
 
-    results = {
-        "total_items": total_items,
-        "updated_variants": 0,
-        "not_found_variants": 0,
-        "failed_items": 0,
-    }
+    The payload is typically a list of ``{"short_item_no": ..., "branches": [...]}``
+    items, possibly wrapped in ``rowset``/``data``/``POS_*``.
+    """
+    items: list[Any] = []
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        if isinstance(payload.get("branches"), list):
+            items = [payload]
+        else:
+            for key in ("rowset", "data"):
+                if isinstance(payload.get(key), list):
+                    items = payload[key]
+                    break
+            if not items:
+                for value in payload.values():
+                    if isinstance(value, dict):
+                        inner = value.get("rowset") or value.get("data")
+                        if isinstance(inner, list):
+                            items = inner
+                            break
 
-    for item in rowset:
-        sku = (
-            item.get("sku") or 
-            item.get("item") or 
-            item.get("second_item_number") or 
-            item.get("litm") or 
-            item.get("itm") or 
-            item.get("item_number") or 
-            item.get("item_code")
-        )
-        if sku:
-            sku = str(sku).strip()
-        
-        qty_val = (
-            item.get("stock_qty") or 
-            item.get("qty") or 
-            item.get("quantity") or 
-            item.get("quantity_on_hand") or 
-            item.get("qty_on_hand") or 
-            item.get("hand_qty") or 
-            item.get("stock") or 
-            item.get("pqoh") or 
-            item.get("lipqoh")
-        )
-        
-        branch = item.get("branch") or item.get("mcu") or item.get("branch_plant")
-        if branch:
-            branch = str(branch).strip()
+    branches: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("branches"), list):
+            branches.extend(item["branches"])
+    return branches
 
-        if not sku:
-            logger.warning(f"Melewati baris Item Branch karena SKU/Item kosong: {item}")
-            results["failed_items"] += 1
+
+async def _get_or_create(
+    db: AsyncSession,
+    model: Any,
+    match: dict[str, Any],
+    defaults: dict[str, Any],
+) -> tuple[Any, bool]:
+    """Get the first non-deleted row matching ``match`` or create it.
+
+    Returns the instance and whether it was newly created.
+    """
+    conditions = [getattr(model, k) == v for k, v in match.items()]
+    conditions.append(model.deleted == False)  # noqa: E712
+    result = await db.execute(select(model).where(*conditions))
+    obj = result.scalars().first()
+    if obj is not None:
+        for key, value in defaults.items():
+            setattr(obj, key, value)
+        return obj, False
+    obj = model(**match, **defaults)
+    db.add(obj)
+    await db.flush()
+    return obj, True
+
+
+async def _get_or_create_default_tier(db: AsyncSession) -> StoreTier:
+    """Return the default ``StoreTier`` (creating it if necessary)."""
+    tier, _ = await _get_or_create(
+        db,
+        StoreTier,
+        {"code": DEFAULT_STORE_TIER_CODE},
+        {"name": DEFAULT_STORE_TIER_NAME},
+    )
+    return tier
+
+
+async def sync_branch_stores_data(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build the store hierarchy (store_group, store, channel_group, channel)
+    from the ``branches`` data of a JDE item-branch payload.
+
+    Mapping (confirmed with domain owner):
+        store_group        <- business_unit
+        store              <- cabang_code (+ cabang_desc), under its business_unit
+        store_channel_group <- stocking_type
+        store_channel      <- program_id, under its store + channel_group
+
+    Returns a summary of created/updated records.
+    """
+    logger = item_branch_logger
+    branches = _extract_branches(payload)
+    if not branches:
+        logger.warning("Tidak ada data branch untuk disinkronisasi ke store.")
+        return {"stores_created": 0, "stores_updated": 0}
+
+    tier = await _get_or_create_default_tier(db)
+
+    group_cache: dict[str, StoreGroup] = {}
+    channel_group_cache: dict[str, StoreChannelGroup] = {}
+    store_cache: dict[str, Store] = {}
+
+    created = updated = 0
+
+    for branch in branches:
+        business_unit = str(branch.get("business_unit") or "").strip()
+        cabang_code = str(branch.get("cabang_code") or "").strip()
+        cabang_desc = str(branch.get("cabang_desc") or "").strip()
+        stocking_type = str(branch.get("stocking_type") or "").strip()
+        program_id = str(branch.get("program_id") or "").strip()
+
+        if not business_unit or not cabang_code:
+            logger.warning(f"Melewati branch karena business_unit/cabang_code kosong: {branch}")
             continue
 
-        try:
-            async with db.begin_nested():
-                stmt = select(ProductVariant).where(
-                    func.lower(func.trim(ProductVariant.sku)) == sku.lower(),
-                    ProductVariant.deleted == False  # noqa: E712
-                )
-                res = await db.execute(stmt)
-                variant = res.scalar_one_or_none()
+        # store_group <- business_unit
+        if business_unit not in group_cache:
+            group, is_new = await _get_or_create(
+                db,
+                StoreGroup,
+                {"code": business_unit},
+                {"name": business_unit},
+            )
+            group_cache[business_unit] = group
+            created += int(is_new)
+            if not is_new:
+                updated += 1
+        group = group_cache[business_unit]
 
-                if variant:
-                    new_qty = safe_int(qty_val)
-                    variant.stock_qty = new_qty
-                    
-                    if branch:
-                        if variant.attributes is None:
-                            variant.attributes = {}
-                        variant.attributes["branch"] = branch
-                    
-                    results["updated_variants"] += 1
-                    logger.info(f"Item Branch: Berhasil menyelaraskan SKU '{sku}' (Qty: {new_qty})")
-                else:
-                    results["not_found_variants"] += 1
-                    logger.warning(f"Item Branch: SKU '{sku}' tidak ditemukan di database")
-                
-                await db.flush()
-        except Exception as e:
-            logger.error(f"Gagal menyelaraskan Item Branch SKU '{sku}': {str(e)}", exc_info=True)
-            results["failed_items"] += 1
+        # store <- cabang_code under its business_unit
+        if cabang_code not in store_cache:
+            store, is_new = await _get_or_create(
+                db,
+                Store,
+                {"code": cabang_code},
+                {
+                    "name": cabang_desc or cabang_code,
+                    "store_group_id": group.id,
+                    "tier_id": tier.id,
+                },
+            )
+            store_cache[cabang_code] = store
+            created += int(is_new)
+            if not is_new:
+                updated += 1
+        else:
+            store = store_cache[cabang_code]
+
+        # store_channel_group <- stocking_type
+        if stocking_type and stocking_type not in channel_group_cache:
+            channel_group, cg_is_new = await _get_or_create(
+                db,
+                StoreChannelGroup,
+                {"code": stocking_type},
+                {"name": stocking_type},
+            )
+            channel_group_cache[stocking_type] = channel_group
+            created += int(cg_is_new)
+            if not cg_is_new:
+                updated += 1
+
+        # store_channel <- program_id (unique per store, hence prefixed)
+        if program_id:
+            cg = channel_group_cache.get(stocking_type)
+            if cg is None:
+                cg, _ = await _get_or_create(
+                    db,
+                    StoreChannelGroup,
+                    {"code": stocking_type or "DEFAULT"},
+                    {"name": stocking_type or "Default"},
+                )
+                channel_group_cache[stocking_type or "DEFAULT"] = cg
+            channel_code = f"{cabang_code}-{program_id}"
+            _, ch_is_new = await _get_or_create(
+                db,
+                StoreChannel,
+                {"code": channel_code, "store_id": store.id},
+                {"name": program_id, "store_channel_group_id": cg.id},
+            )
+            created += int(ch_is_new)
+            if not ch_is_new:
+                updated += 1
 
     await db.commit()
-    logger.info(f"Sinkronisasi Item Branch selesai: {results}")
-    return results
+    logger.info(f"Sinkronisasi store dari branch selesai: {created} dibuat, {updated} diperbarui.")
+    return {"stores_created": created, "stores_updated": updated}
 
 
 async def sync_base_price_data(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute synchronization of JDE base prices into database."""
+    logger = base_price_logger
     rowset = normalize_rowset(payload)
     total_items = len(rowset)
     logger.info(f"Memulai sinkronisasi Base Price. Total data: {total_items}")
@@ -239,6 +330,7 @@ async def sync_base_price_data(db: AsyncSession, payload: dict[str, Any]) -> dic
 
 async def sync_customer_master_data(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute synchronization of JDE Customer Master into database."""
+    logger = customer_master_logger
     rowset = normalize_rowset(payload)
     total_items = len(rowset)
     logger.info(f"Memulai sinkronisasi Customer Master. Total data: {total_items}")
@@ -340,14 +432,14 @@ async def sync_customer_master_data(db: AsyncSession, payload: dict[str, Any]) -
                 else:
                     user_id = None
                     if email:
-                        user_stmt = select(User).where(
-                            func.lower(func.trim(User.email)) == email.lower(),
-                            User.deleted == False  # noqa: E712
+                        # Link to the externally managed ``users`` table (UUID PK) by email.
+                        user_stmt = text(
+                            "SELECT id FROM users "
+                            "WHERE lower(trim(email)) = :email AND deleted = false "
+                            "LIMIT 1"
                         )
-                        user_res = await db.execute(user_stmt)
-                        user_obj = user_res.scalar_one_or_none()
-                        if user_obj:
-                            user_id = user_obj.id
+                        user_res = await db.execute(user_stmt, {"email": email.lower()})
+                        user_id = user_res.scalar_one_or_none()
 
                     customer = Customer(
                         name=name,
@@ -361,40 +453,10 @@ async def sync_customer_master_data(db: AsyncSession, payload: dict[str, Any]) -
                     results["inserted_customers"] += 1
                     logger.info(f"Customer Master: Berhasil membuat customer baru '{name}' ({customer.email})")
 
-                if address_text:
-                    addr_stmt = select(Address).where(
-                        Address.customer_id == customer.id,
-                        func.lower(func.trim(Address.address)) == address_text.lower(),
-                        Address.deleted == False  # noqa: E712
-                    )
-                    addr_res = await db.execute(addr_stmt)
-                    address_obj = addr_res.scalar_one_or_none()
-
-                    if address_obj:
-                        address_obj.recipient_name = name
-                        address_obj.phone = phone or customer.phone or "0"
-                        address_obj.postal_code = postal_code
-                        results["updated_addresses"] += 1
-                    else:
-                        cnt_stmt = select(func.count(Address.id)).where(
-                            Address.customer_id == customer.id,
-                            Address.deleted == False  # noqa: E712
-                        )
-                        cnt_res = await db.execute(cnt_stmt)
-                        has_addresses = cnt_res.scalar() > 0
-
-                        new_addr = Address(
-                            customer_id=customer.id,
-                            recipient_name=name,
-                            phone=phone or customer.phone or "0",
-                            address=address_text,
-                            label="Alamat JDE",
-                            postal_code=postal_code,
-                            is_primary=not has_addresses,
-                            creator="JDE Sync"
-                        )
-                        db.add(new_addr)
-                        results["inserted_addresses"] += 1
+                # NOTE: The ``addresses`` table in this database is user-scoped and
+                # requires a ``city_id``; JDE customer-master rows have neither, so
+                # the raw address text is preserved in ``customer.meta`` (jde_data)
+                # instead of being written to ``addresses``.
 
                 await db.flush()
         except Exception as e:
@@ -412,9 +474,10 @@ async def sync_item_branch_task(
     payload: dict[str, Any],
     db: AsyncSession = TaskiqDepends(get_db_session),
 ) -> dict[str, Any]:
-    """Background task to sync item branch data."""
+    """Background task to sync item branch (store hierarchy) data."""
+    logger = item_branch_logger
     try:
-        return await sync_item_branch_data(db, payload)
+        return await sync_branch_stores_data(db, payload)
     except Exception as e:
         logger.error(f"Gagal dalam background task sinkronisasi Item Branch: {str(e)}", exc_info=True)
         await db.rollback()
@@ -427,6 +490,7 @@ async def sync_base_price_task(
     db: AsyncSession = TaskiqDepends(get_db_session),
 ) -> dict[str, Any]:
     """Background task to sync base price data."""
+    logger = base_price_logger
     try:
         return await sync_base_price_data(db, payload)
     except Exception as e:
@@ -441,6 +505,7 @@ async def sync_customer_master_task(
     db: AsyncSession = TaskiqDepends(get_db_session),
 ) -> dict[str, Any]:
     """Background task to sync customer master data."""
+    logger = customer_master_logger
     try:
         return await sync_customer_master_data(db, payload)
     except Exception as e:

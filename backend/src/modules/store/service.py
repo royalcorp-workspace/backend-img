@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,8 +40,8 @@ class StoreService:
             db=db, offset=skip, limit=limit, schema_to_select=StoreGroupRead, **filters
         )
 
-    async def get_group_by_id(self, db: AsyncSession, group_id: int) -> dict[str, Any]:
-        res = await crud_store_groups.get(db=db, id=group_id, is_deleted=False)
+    async def get_group_by_id(self, db: AsyncSession, group_id: UUID) -> dict[str, Any]:
+        res = await crud_store_groups.get(db=db, id=group_id, deleted=False)
         if not res:
             raise ResourceNotFoundError(f"Store Group with ID {group_id} not found")
         return res
@@ -53,8 +54,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def update_group(self, db: AsyncSession, group_id: int, group_in: StoreGroupUpdate) -> dict[str, Any]:
-        group = await crud_store_groups.get(db=db, id=group_id, is_deleted=False)
+    async def update_group(self, db: AsyncSession, group_id: UUID, group_in: StoreGroupUpdate) -> dict[str, Any]:
+        group = await crud_store_groups.get(db=db, id=group_id, deleted=False)
         if not group:
             raise ResourceNotFoundError(f"Store Group with ID {group_id} not found")
         if group_in.code and group_in.code != group.get("code"):
@@ -65,8 +66,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def delete_group(self, db: AsyncSession, group_id: int) -> None:
-        group = await crud_store_groups.get(db=db, id=group_id, is_deleted=False)
+    async def delete_group(self, db: AsyncSession, group_id: UUID) -> None:
+        group = await crud_store_groups.get(db=db, id=group_id, deleted=False)
         if not group:
             raise ResourceNotFoundError(f"Store Group with ID {group_id} not found")
         await crud_store_groups.delete(db=db, id=group_id)
@@ -78,8 +79,8 @@ class StoreService:
             db=db, offset=skip, limit=limit, schema_to_select=StoreTierRead, **filters
         )
 
-    async def get_tier_by_id(self, db: AsyncSession, tier_id: int) -> dict[str, Any]:
-        res = await crud_store_tiers.get(db=db, id=tier_id, is_deleted=False)
+    async def get_tier_by_id(self, db: AsyncSession, tier_id: UUID) -> dict[str, Any]:
+        res = await crud_store_tiers.get(db=db, id=tier_id, deleted=False)
         if not res:
             raise ResourceNotFoundError(f"Store Tier with ID {tier_id} not found")
         return res
@@ -92,8 +93,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def update_tier(self, db: AsyncSession, tier_id: int, tier_in: StoreTierUpdate) -> dict[str, Any]:
-        tier = await crud_store_tiers.get(db=db, id=tier_id, is_deleted=False)
+    async def update_tier(self, db: AsyncSession, tier_id: UUID, tier_in: StoreTierUpdate) -> dict[str, Any]:
+        tier = await crud_store_tiers.get(db=db, id=tier_id, deleted=False)
         if not tier:
             raise ResourceNotFoundError(f"Store Tier with ID {tier_id} not found")
         if tier_in.code and tier_in.code != tier.get("code"):
@@ -104,8 +105,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def delete_tier(self, db: AsyncSession, tier_id: int) -> None:
-        tier = await crud_store_tiers.get(db=db, id=tier_id, is_deleted=False)
+    async def delete_tier(self, db: AsyncSession, tier_id: UUID) -> None:
+        tier = await crud_store_tiers.get(db=db, id=tier_id, deleted=False)
         if not tier:
             raise ResourceNotFoundError(f"Store Tier with ID {tier_id} not found")
         await crud_store_tiers.delete(db=db, id=tier_id)
@@ -117,8 +118,8 @@ class StoreService:
             db=db, offset=skip, limit=limit, schema_to_select=StoreChannelGroupRead, **filters
         )
 
-    async def get_channel_group_by_id(self, db: AsyncSession, channel_group_id: int) -> dict[str, Any]:
-        res = await crud_store_channel_groups.get(db=db, id=channel_group_id, is_deleted=False)
+    async def get_channel_group_by_id(self, db: AsyncSession, channel_group_id: UUID) -> dict[str, Any]:
+        res = await crud_store_channel_groups.get(db=db, id=channel_group_id, deleted=False)
         if not res:
             raise ResourceNotFoundError(f"Store Channel Group with ID {channel_group_id} not found")
         return res
@@ -134,9 +135,9 @@ class StoreService:
         return res
 
     async def update_channel_group(
-        self, db: AsyncSession, channel_group_id: int, channel_group_in: StoreChannelGroupUpdate
+        self, db: AsyncSession, channel_group_id: UUID, channel_group_in: StoreChannelGroupUpdate
     ) -> dict[str, Any]:
-        group = await crud_store_channel_groups.get(db=db, id=channel_group_id, is_deleted=False)
+        group = await crud_store_channel_groups.get(db=db, id=channel_group_id, deleted=False)
         if not group:
             raise ResourceNotFoundError(f"Store Channel Group with ID {channel_group_id} not found")
         if channel_group_in.code and channel_group_in.code != group.get("code"):
@@ -147,8 +148,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def delete_channel_group(self, db: AsyncSession, channel_group_id: int) -> None:
-        group = await crud_store_channel_groups.get(db=db, id=channel_group_id, is_deleted=False)
+    async def delete_channel_group(self, db: AsyncSession, channel_group_id: UUID) -> None:
+        group = await crud_store_channel_groups.get(db=db, id=channel_group_id, deleted=False)
         if not group:
             raise ResourceNotFoundError(f"Store Channel Group with ID {channel_group_id} not found")
         await crud_store_channel_groups.delete(db=db, id=channel_group_id)
@@ -160,20 +161,21 @@ class StoreService:
             db=db, offset=skip, limit=limit, schema_to_select=StoreRead, **filters
         )
 
-    async def get_store_by_id(self, db: AsyncSession, store_id: int) -> dict[str, Any]:
-        res = await crud_stores.get(db=db, id=store_id, is_deleted=False)
+    async def get_store_by_id(self, db: AsyncSession, store_id: UUID) -> dict[str, Any]:
+        res = await crud_stores.get(db=db, id=store_id, deleted=False)
         if not res:
             raise ResourceNotFoundError(f"Store with ID {store_id} not found")
         return res
 
     async def create_store(self, db: AsyncSession, store_in: StoreCreate) -> dict[str, Any]:
         # Validate StoreGroup & StoreTier exist
-        group = await crud_store_groups.get(db=db, id=store_in.store_group_id, is_deleted=False)
+        group = await crud_store_groups.get(db=db, id=store_in.store_group_id, deleted=False)
         if not group:
             raise ResourceNotFoundError(f"Store Group with ID {store_in.store_group_id} not found")
-        tier = await crud_store_tiers.get(db=db, id=store_in.tier_id, is_deleted=False)
-        if not tier:
-            raise ResourceNotFoundError(f"Store Tier with ID {store_in.tier_id} not found")
+        if store_in.tier_id:
+            tier = await crud_store_tiers.get(db=db, id=store_in.tier_id, deleted=False)
+            if not tier:
+                raise ResourceNotFoundError(f"Store Tier with ID {store_in.tier_id} not found")
 
         existing = await crud_stores.get(db=db, code=store_in.code)
         if existing:
@@ -182,17 +184,17 @@ class StoreService:
         await db.commit()
         return res
 
-    async def update_store(self, db: AsyncSession, store_id: int, store_in: StoreUpdate) -> dict[str, Any]:
-        store = await crud_stores.get(db=db, id=store_id, is_deleted=False)
+    async def update_store(self, db: AsyncSession, store_id: UUID, store_in: StoreUpdate) -> dict[str, Any]:
+        store = await crud_stores.get(db=db, id=store_id, deleted=False)
         if not store:
             raise ResourceNotFoundError(f"Store with ID {store_id} not found")
 
         if store_in.store_group_id:
-            group = await crud_store_groups.get(db=db, id=store_in.store_group_id, is_deleted=False)
+            group = await crud_store_groups.get(db=db, id=store_in.store_group_id, deleted=False)
             if not group:
                 raise ResourceNotFoundError(f"Store Group with ID {store_in.store_group_id} not found")
         if store_in.tier_id:
-            tier = await crud_store_tiers.get(db=db, id=store_in.tier_id, is_deleted=False)
+            tier = await crud_store_tiers.get(db=db, id=store_in.tier_id, deleted=False)
             if not tier:
                 raise ResourceNotFoundError(f"Store Tier with ID {store_in.tier_id} not found")
 
@@ -204,8 +206,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def delete_store(self, db: AsyncSession, store_id: int) -> None:
-        store = await crud_stores.get(db=db, id=store_id, is_deleted=False)
+    async def delete_store(self, db: AsyncSession, store_id: UUID) -> None:
+        store = await crud_stores.get(db=db, id=store_id, deleted=False)
         if not store:
             raise ResourceNotFoundError(f"Store with ID {store_id} not found")
         await crud_stores.delete(db=db, id=store_id)
@@ -217,18 +219,18 @@ class StoreService:
             db=db, offset=skip, limit=limit, schema_to_select=StoreChannelRead, **filters
         )
 
-    async def get_channel_by_id(self, db: AsyncSession, channel_id: int) -> dict[str, Any]:
-        res = await crud_store_channels.get(db=db, id=channel_id, is_deleted=False)
+    async def get_channel_by_id(self, db: AsyncSession, channel_id: UUID) -> dict[str, Any]:
+        res = await crud_store_channels.get(db=db, id=channel_id, deleted=False)
         if not res:
             raise ResourceNotFoundError(f"Store Channel with ID {channel_id} not found")
         return res
 
     async def create_channel(self, db: AsyncSession, channel_in: StoreChannelCreate) -> dict[str, Any]:
         # Validate Store & StoreChannelGroup exist
-        store = await crud_stores.get(db=db, id=channel_in.store_id, is_deleted=False)
+        store = await crud_stores.get(db=db, id=channel_in.store_id, deleted=False)
         if not store:
             raise ResourceNotFoundError(f"Store with ID {channel_in.store_id} not found")
-        group = await crud_store_channel_groups.get(db=db, id=channel_in.store_channel_group_id, is_deleted=False)
+        group = await crud_store_channel_groups.get(db=db, id=channel_in.store_channel_group_id, deleted=False)
         if not group:
             raise ResourceNotFoundError(f"Store Channel Group with ID {channel_in.store_channel_group_id} not found")
 
@@ -239,17 +241,17 @@ class StoreService:
         await db.commit()
         return res
 
-    async def update_channel(self, db: AsyncSession, channel_id: int, channel_in: StoreChannelUpdate) -> dict[str, Any]:
-        channel = await crud_store_channels.get(db=db, id=channel_id, is_deleted=False)
+    async def update_channel(self, db: AsyncSession, channel_id: UUID, channel_in: StoreChannelUpdate) -> dict[str, Any]:
+        channel = await crud_store_channels.get(db=db, id=channel_id, deleted=False)
         if not channel:
             raise ResourceNotFoundError(f"Store Channel with ID {channel_id} not found")
 
         if channel_in.store_id:
-            store = await crud_stores.get(db=db, id=channel_in.store_id, is_deleted=False)
+            store = await crud_stores.get(db=db, id=channel_in.store_id, deleted=False)
             if not store:
                 raise ResourceNotFoundError(f"Store with ID {channel_in.store_id} not found")
         if channel_in.store_channel_group_id:
-            group = await crud_store_channel_groups.get(db=db, id=channel_in.store_channel_group_id, is_deleted=False)
+            group = await crud_store_channel_groups.get(db=db, id=channel_in.store_channel_group_id, deleted=False)
             if not group:
                 raise ResourceNotFoundError(f"Store Channel Group with ID {channel_in.store_channel_group_id} not found")
 
@@ -261,8 +263,8 @@ class StoreService:
         await db.commit()
         return res
 
-    async def delete_channel(self, db: AsyncSession, channel_id: int) -> None:
-        channel = await crud_store_channels.get(db=db, id=channel_id, is_deleted=False)
+    async def delete_channel(self, db: AsyncSession, channel_id: UUID) -> None:
+        channel = await crud_store_channels.get(db=db, id=channel_id, deleted=False)
         if not channel:
             raise ResourceNotFoundError(f"Store Channel with ID {channel_id} not found")
         await crud_store_channels.delete(db=db, id=channel_id)

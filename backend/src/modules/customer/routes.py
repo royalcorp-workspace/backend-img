@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
@@ -152,7 +153,7 @@ async def create_customer(
     customer_service: CustomerServiceDep,
 ) -> dict[str, Any]:
     try:
-        return await customer_service.create(customer_in, db)
+        return await customer_service.create(db, customer_in)
     except Exception as e:
         http_exception = handle_exception(e)
         if http_exception:
@@ -212,7 +213,7 @@ async def create_customer(
     },
 )
 async def get_customer(
-    customer_id: int,
+    customer_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("customers:read"))],
     customer_service: CustomerServiceDep,
@@ -284,7 +285,7 @@ async def get_customer(
     },
 )
 async def update_customer(
-    customer_id: int,
+    customer_id: UUID,
     customer_in: CustomerUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("customers:update"))],
@@ -321,7 +322,7 @@ async def update_customer(
     },
 )
 async def delete_customer(
-    customer_id: int,
+    customer_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("customers:delete"))],
     customer_service: CustomerServiceDep,

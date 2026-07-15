@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
@@ -230,7 +231,7 @@ async def create_store_group(
     responses={200: {"content": {"application/json": {"example": GROUP_EXAMPLE}}}},
 )
 async def update_store_group(
-    group_id: int,
+    group_id: UUID,
     group_in: StoreGroupUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:update"))],
@@ -252,7 +253,7 @@ async def update_store_group(
     tags=["Store Groups"],
 )
 async def delete_store_group(
-    group_id: int,
+    group_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:delete"))],
     store_service: StoreServiceDep,
@@ -326,7 +327,7 @@ async def create_store_tier(
     responses={200: {"content": {"application/json": {"example": TIER_EXAMPLE}}}},
 )
 async def update_store_tier(
-    tier_id: int,
+    tier_id: UUID,
     tier_in: StoreTierUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:update"))],
@@ -348,7 +349,7 @@ async def update_store_tier(
     tags=["Store Tiers"],
 )
 async def delete_store_tier(
-    tier_id: int,
+    tier_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:delete"))],
     store_service: StoreServiceDep,
@@ -424,7 +425,7 @@ async def create_store_channel_group(
     responses={200: {"content": {"application/json": {"example": CHANNEL_GROUP_EXAMPLE}}}},
 )
 async def update_store_channel_group(
-    channel_group_id: int,
+    channel_group_id: UUID,
     channel_group_in: StoreChannelGroupUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:update"))],
@@ -446,7 +447,7 @@ async def update_store_channel_group(
     tags=["Store Channel Groups"],
 )
 async def delete_store_channel_group(
-    channel_group_id: int,
+    channel_group_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:delete"))],
     store_service: StoreServiceDep,
@@ -497,7 +498,7 @@ async def list_stores(
     responses={200: {"content": {"application/json": {"example": STORE_EXAMPLE}}}},
 )
 async def get_store(
-    store_id: int,
+    store_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:read"))],
     store_service: StoreServiceDep,
@@ -536,7 +537,7 @@ async def create_store(
     responses={200: {"content": {"application/json": {"example": STORE_EXAMPLE}}}},
 )
 async def update_store(
-    store_id: int,
+    store_id: UUID,
     store_in: StoreUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:update"))],
@@ -558,7 +559,7 @@ async def update_store(
     tags=["Stores"],
 )
 async def delete_store(
-    store_id: int,
+    store_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:delete"))],
     store_service: StoreServiceDep,
@@ -609,7 +610,7 @@ async def list_store_channels(
     responses={200: {"content": {"application/json": {"example": CHANNEL_EXAMPLE}}}},
 )
 async def get_store_channel(
-    channel_id: int,
+    channel_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:read"))],
     store_service: StoreServiceDep,
@@ -648,7 +649,7 @@ async def create_store_channel(
     responses={200: {"content": {"application/json": {"example": CHANNEL_EXAMPLE}}}},
 )
 async def update_store_channel(
-    channel_id: int,
+    channel_id: UUID,
     channel_in: StoreChannelUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:update"))],
@@ -670,7 +671,7 @@ async def update_store_channel(
     tags=["Store Channels"],
 )
 async def delete_store_channel(
-    channel_id: int,
+    channel_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("stores:delete"))],
     store_service: StoreServiceDep,
