@@ -1,8 +1,5 @@
-import logging
-import logging.handlers
 import re
 import uuid
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -10,29 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from taskiq import TaskiqDepends
 
+from ...infrastructure.logging.receiver import get_receiver_logger
 from ...infrastructure.taskiq.brokers import default_broker
 from ...infrastructure.taskiq.deps import get_db_session
 from ..category.models import Category
 from .models import Product, ProductColor, ProductImage, ProductVariant, Brand, RefProductCategory
 
-# Setup dedicated file logger for POS sync
-BACKEND_DIR = Path(__file__).resolve().parents[3]
-LOGS_DIR = BACKEND_DIR / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-SYNC_LOG_FILE = LOGS_DIR / "pos_sync.log"
-
-sync_file_handler = logging.handlers.TimedRotatingFileHandler(
-    SYNC_LOG_FILE, when="midnight", interval=1, backupCount=30, encoding="utf-8"
-)
-sync_file_handler.suffix = "%Y-%m-%d"
-sync_file_handler.extMatch = r"^\d{4}-\d{2}-\d{2}(\.\w+)?$"
-sync_file_formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s]: %(message)s")
-sync_file_handler.setFormatter(sync_file_formatter)
-sync_file_handler.setLevel(logging.INFO)
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.addHandler(sync_file_handler)
+# Dedicated daily-rotating logger for the product (item-master) receiver
+logger = get_receiver_logger("product", "item-master")
 
 
 def slugify(text: str) -> str:

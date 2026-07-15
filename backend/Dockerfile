@@ -66,6 +66,8 @@ USER appuser
 
 # Add quality-of-life configs for development
 ENV PYTHONUNBUFFERED=1
+# Prevent writing .pyc files to mounted source volumes (avoids stale cache)
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Development command with FastAPI CLI auto-reload
 CMD ["fastapi", "dev", "interfaces/main.py", "--host", "0.0.0.0", "--port", "8000"]
