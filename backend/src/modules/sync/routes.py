@@ -1,22 +1,22 @@
 import asyncio
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Body, Header, Query, Request
 
 from ...infrastructure.auth.http_exceptions import HTTPException
 from ...infrastructure.config import get_settings
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.logging import get_logger
+from ..common.utils.jde import fetch_jde_payload
 from .sync import (
-    logger as sync_logger,
-)
-from .sync import (
+    base_price_logger,
+    customer_master_logger,
+    item_branch_logger,
     sync_base_price_data,
     sync_base_price_task,
+    sync_branch_stores_data,
     sync_customer_master_data,
     sync_customer_master_task,
-    sync_item_branch_data,
     sync_item_branch_task,
 )
 
@@ -29,7 +29,7 @@ settings = get_settings()
     "/item-branch",
     summary="Webhook Sync Item Branch",
     description="""
-    Menerima payload JSON untuk sinkronisasi Item Branch (Stok Inventory) secara async (background task) atau sync.
+    Menerima payload JSON untuk sinkronisasi Item Branch (store_group, store, channel_group, channel) secara async (background task) atau sync.
     Menangani timeout koneksi/eksekusi dan memverifikasi API Key di header.
     """,
     responses={
@@ -69,12 +69,12 @@ settings = get_settings()
 async def webhook_sync_item_branch(
     request: Request,
     db: AsyncSessionDep,
-    body: dict[str, Any] = Body(None),
+    body: Any = Body(None),
     sync: bool = Query(False, description="Jalankan secara synchronous (tidak disarankan untuk data besar)"),
     x_api_key: str = Header(..., alias="X-API-Key", description="API Key untuk integrasi JDE"),
 ) -> dict[str, Any]:
     # 1. Verify API Key
-    logger = sync_logger
+    logger = item_branch_logger
     logger.info(f"Menerima request webhook sync item-branch. Headers: {dict(request.headers)}")
     if x_api_key != settings.JDE_API_KEY:
         logger.warning(f"Verifikasi API Key gagal. Nilai header X-API-Key: '{x_api_key}'")
@@ -85,54 +85,33 @@ async def webhook_sync_item_branch(
 
     payload = body
 
-    # 2. Fetch from JDE if payload is empty
+    # 2. Fetch from JDE if payload is empty, then validate & log the response
+    jde_total: int | None = None
     has_jde_keys = any(k.startswith("POS_") for k in payload.keys()) if payload and isinstance(payload, dict) else False
     if not payload or not isinstance(payload, dict) or not (has_jde_keys or "rowset" in payload or "data" in payload):
-        jde_url = f"{settings.JDE_BASE_URL.rstrip('/')}/sync/item-branch"
-        logger.info(f"Tidak ada payload body. Mengambil data dari JDE POS Server: {jde_url}")
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    jde_url,
-                    headers={"X-API-Key": settings.JDE_API_KEY},
-                )
-                if resp.status_code != 200:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=(
-                            "Gagal mengambil data dari JDE POS Server. "
-                            f"Server JDE merespons dengan status code: {resp.status_code}"
-                        ),
-                    )
-                payload = resp.json()
-        except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=408,
-                detail="Waktu tunggu habis (Request Timeout) saat menghubungi JDE POS Server.",
-            )
-        except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Kesalahan koneksi saat menghubungi JDE POS Server: {str(e)}",
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=502,
-                detail="Respon dari JDE POS Server bukan JSON yang valid.",
-            )
+        payload, jde_total = await fetch_jde_payload("item-branch", logger)
 
     # Validate structure
-    if not isinstance(payload, dict):
+    if not isinstance(payload, (dict, list)):
         raise HTTPException(
             status_code=400,
             detail=f"Format payload tidak valid. Tipe data yang diterima: {type(payload)}",
         )
 
+    # Jika respon JDE kosong, lewati penjadwalan/sinkronisasi
+    if jde_total == 0:
+        logger.warning("Respon JDE kosong. Melewatkan sinkronisasi Item Branch.")
+        return {
+            "success": True,
+            "status": "no_data",
+            "message": "Tidak ada data dari JDE POS Server yang perlu disinkronkan untuk Item Branch.",
+        }
+
     # 3. Execution
     if sync:
         logger.info("Menjalankan sinkronisasi Item Branch secara synchronous...")
         try:
-            result = await asyncio.wait_for(sync_item_branch_data(db, payload), timeout=60.0)
+            result = await asyncio.wait_for(sync_branch_stores_data(db, payload), timeout=60.0)
             return {
                 "success": True,
                 "status": "completed",
@@ -214,7 +193,7 @@ async def webhook_sync_base_price(
     x_api_key: str = Header(..., alias="X-API-Key", description="API Key untuk integrasi JDE"),
 ) -> dict[str, Any]:
     # 1. Verify API Key
-    logger = sync_logger
+    logger = base_price_logger
     logger.info(f"Menerima request webhook sync base-price. Headers: {dict(request.headers)}")
     if x_api_key != settings.JDE_API_KEY:
         logger.warning(f"Verifikasi API Key gagal. Nilai header X-API-Key: '{x_api_key}'")
@@ -225,48 +204,27 @@ async def webhook_sync_base_price(
 
     payload = body
 
-    # 2. Fetch from JDE if payload is empty
+    # 2. Fetch from JDE if payload is empty, then validate & log the response
+    jde_total: int | None = None
     has_jde_keys = any(k.startswith("POS_") for k in payload.keys()) if payload and isinstance(payload, dict) else False
     if not payload or not isinstance(payload, dict) or not (has_jde_keys or "rowset" in payload or "data" in payload):
-        jde_url = f"{settings.JDE_BASE_URL.rstrip('/')}/sync/base-price"
-        logger.info(f"Tidak ada payload body. Mengambil data dari JDE POS Server: {jde_url}")
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    jde_url,
-                    headers={"X-API-Key": settings.JDE_API_KEY},
-                )
-                if resp.status_code != 200:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=(
-                            "Gagal mengambil data dari JDE POS Server. "
-                            f"Server JDE merespons dengan status code: {resp.status_code}"
-                        ),
-                    )
-                payload = resp.json()
-        except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=408,
-                detail="Waktu tunggu habis (Request Timeout) saat menghubungi JDE POS Server.",
-            )
-        except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Kesalahan koneksi saat menghubungi JDE POS Server: {str(e)}",
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=502,
-                detail="Respon dari JDE POS Server bukan JSON yang valid.",
-            )
+        payload, jde_total = await fetch_jde_payload("base-price", logger)
 
     # Validate structure
-    if not isinstance(payload, dict):
+    if not isinstance(payload, (dict, list)):
         raise HTTPException(
             status_code=400,
             detail=f"Format payload tidak valid. Tipe data yang diterima: {type(payload)}",
         )
+
+    # Jika respon JDE kosong, lewati penjadwalan/sinkronisasi
+    if jde_total == 0:
+        logger.warning("Respon JDE kosong. Melewatkan sinkronisasi Base Price.")
+        return {
+            "success": True,
+            "status": "no_data",
+            "message": "Tidak ada data dari JDE POS Server yang perlu disinkronkan untuk Base Price.",
+        }
 
     # 3. Execution
     if sync:
@@ -356,7 +314,7 @@ async def webhook_sync_customer_master(
     x_api_key: str = Header(..., alias="X-API-Key", description="API Key untuk integrasi JDE"),
 ) -> dict[str, Any]:
     # 1. Verify API Key
-    logger = sync_logger
+    logger = customer_master_logger
     logger.info(f"Menerima request webhook sync customer-master. Headers: {dict(request.headers)}")
     if x_api_key != settings.JDE_API_KEY:
         logger.warning(f"Verifikasi API Key gagal. Nilai header X-API-Key: '{x_api_key}'")
@@ -367,48 +325,27 @@ async def webhook_sync_customer_master(
 
     payload = body
 
-    # 2. Fetch from JDE if payload is empty
+    # 2. Fetch from JDE if payload is empty, then validate & log the response
+    jde_total: int | None = None
     has_jde_keys = any(k.startswith("POS_") for k in payload.keys()) if payload and isinstance(payload, dict) else False
     if not payload or not isinstance(payload, dict) or not (has_jde_keys or "rowset" in payload or "data" in payload):
-        jde_url = f"{settings.JDE_BASE_URL.rstrip('/')}/sync/customer-master"
-        logger.info(f"Tidak ada payload body. Mengambil data dari JDE POS Server: {jde_url}")
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    jde_url,
-                    headers={"X-API-Key": settings.JDE_API_KEY},
-                )
-                if resp.status_code != 200:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=(
-                            "Gagal mengambil data dari JDE POS Server. "
-                            f"Server JDE merespons dengan status code: {resp.status_code}"
-                        ),
-                    )
-                payload = resp.json()
-        except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=408,
-                detail="Waktu tunggu habis (Request Timeout) saat menghubungi JDE POS Server.",
-            )
-        except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Kesalahan koneksi saat menghubungi JDE POS Server: {str(e)}",
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=502,
-                detail="Respon dari JDE POS Server bukan JSON yang valid.",
-            )
+        payload, jde_total = await fetch_jde_payload("customer-master", logger)
 
     # Validate structure
-    if not isinstance(payload, dict):
+    if not isinstance(payload, (dict, list)):
         raise HTTPException(
             status_code=400,
             detail=f"Format payload tidak valid. Tipe data yang diterima: {type(payload)}",
         )
+
+    # Jika respon JDE kosong, lewati penjadwalan/sinkronisasi
+    if jde_total == 0:
+        logger.warning("Respon JDE kosong. Melewatkan sinkronisasi Customer Master.")
+        return {
+            "success": True,
+            "status": "no_data",
+            "message": "Tidak ada data dari JDE POS Server yang perlu disinkronkan untuk Customer Master.",
+        }
 
     # 3. Execution
     if sync:

@@ -44,6 +44,43 @@ class RotatingFileHandler(logging.handlers.RotatingFileHandler):
         super().__init__(filename=filename, maxBytes=max_bytes, backupCount=backup_count, encoding=encoding)
 
 
+class DailyFileHandler(logging.FileHandler):
+    """Enhanced file handler that writes to daily files and switches at midnight.
+
+    This avoids multi-process file rotation conflicts.
+    """
+
+    def __init__(self, filename: str, encoding: str = "utf-8"):
+        import os
+        import datetime
+        self.filename_base = filename
+        self.current_date = datetime.date.today()
+
+        log_path = Path(self._get_filename())
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        super().__init__(filename=str(log_path), encoding=encoding)
+
+    def _get_filename(self) -> str:
+        import datetime
+        path = Path(self.filename_base)
+        dir_name = path.parent
+        base_name = path.stem
+        ext = path.suffix
+        date_str = self.current_date.strftime("%Y-%m-%d")
+        return str(dir_name / f"{base_name}_{date_str}{ext}")
+
+    def emit(self, record: logging.LogRecord) -> None:
+        import os
+        import datetime
+        today = datetime.date.today()
+        if today != self.current_date:
+            self.current_date = today
+            self.stream.close()
+            self.baseFilename = os.path.abspath(self._get_filename())
+            self.stream = self._open()
+        super().emit(record)
+
+
 def create_console_handler(
     format_type: str = "detailed", level: int = logging.INFO, use_colors: bool = True
 ) -> logging.Handler:
@@ -65,8 +102,8 @@ def create_file_handler(
     max_bytes: int = 10485760,
     backup_count: int = 5,
 ) -> logging.Handler:
-    """Create a configured rotating file handler."""
-    handler = RotatingFileHandler(filename=filepath, max_bytes=max_bytes, backup_count=backup_count)
+    """Create a configured daily file handler."""
+    handler = DailyFileHandler(filename=filepath)
     handler.setLevel(level)
     handler.setFormatter(get_formatter(format_type))
     return handler

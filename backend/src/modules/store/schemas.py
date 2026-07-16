@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from pydantic import BaseModel, Field
@@ -7,7 +8,7 @@ from ..common.schemas import TimestampSchema
 
 # --- Nested Read Schemas (to avoid circular dependencies) ---
 class StoreGroupReadNested(BaseModel):
-    id: int
+    id: uuid.UUID
     code: str
     name: str
     description: str | None = None
@@ -16,7 +17,7 @@ class StoreGroupReadNested(BaseModel):
 
 
 class StoreTierReadNested(BaseModel):
-    id: int
+    id: uuid.UUID
     code: str
     name: str
     description: str | None = None
@@ -27,7 +28,7 @@ class StoreTierReadNested(BaseModel):
 
 
 class StoreChannelGroupReadNested(BaseModel):
-    id: int
+    id: uuid.UUID
     code: str
     name: str
     description: str | None = None
@@ -36,12 +37,12 @@ class StoreChannelGroupReadNested(BaseModel):
 
 
 class StoreReadNested(BaseModel):
-    id: int
-    store_group_id: int
-    tier_id: int
+    id: uuid.UUID
+    store_group_id: uuid.UUID
+    tier_id: uuid.UUID | None = None
     code: str
     name: str
-    owner_user_id: int | None = None
+    owner_user_id: uuid.UUID | None = None
     credit_limit: float
     outstanding_balance: float
     address: str | None = None
@@ -54,9 +55,9 @@ class StoreReadNested(BaseModel):
 
 
 class StoreChannelReadNested(BaseModel):
-    id: int
-    store_id: int
-    store_channel_group_id: int
+    id: uuid.UUID
+    store_id: uuid.UUID
+    store_channel_group_id: uuid.UUID
     code: str
     name: str
     description: str | None = None
@@ -86,7 +87,7 @@ class StoreGroupUpdate(BaseModel):
 
 
 class StoreGroupRead(StoreGroupBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
     stores: list[StoreReadNested] = []
 
 
@@ -116,7 +117,7 @@ class StoreTierUpdate(BaseModel):
 
 
 class StoreTierRead(StoreTierBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
     stores: list[StoreReadNested] = []
 
 
@@ -142,17 +143,17 @@ class StoreChannelGroupUpdate(BaseModel):
 
 
 class StoreChannelGroupRead(StoreChannelGroupBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
     channels: list[StoreChannelReadNested] = []
 
 
 # --- Store ---
 class StoreBase(BaseModel):
-    store_group_id: int
-    tier_id: int
+    store_group_id: uuid.UUID
+    tier_id: uuid.UUID | None = None
     code: Annotated[str, Field(min_length=1, max_length=50)]
     name: Annotated[str, Field(min_length=1, max_length=150)]
-    owner_user_id: int | None = None
+    owner_user_id: uuid.UUID | None = None
     credit_limit: float = 0.0
     outstanding_balance: float = 0.0
     address: str | None = None
@@ -169,11 +170,11 @@ class StoreCreate(StoreBase):
 
 
 class StoreUpdate(BaseModel):
-    store_group_id: int | None = None
-    tier_id: int | None = None
+    store_group_id: uuid.UUID | None = None
+    tier_id: uuid.UUID | None = None
     code: str | None = None
     name: str | None = None
-    owner_user_id: int | None = None
+    owner_user_id: uuid.UUID | None = None
     credit_limit: float | None = None
     outstanding_balance: float | None = None
     address: str | None = None
@@ -186,7 +187,7 @@ class StoreUpdate(BaseModel):
 
 
 class StoreRead(StoreBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
     group: StoreGroupReadNested | None = None
     tier: StoreTierReadNested | None = None
     channels: list[StoreChannelReadNested] = []
@@ -194,8 +195,8 @@ class StoreRead(StoreBase, TimestampSchema):
 
 # --- Store Channel ---
 class StoreChannelBase(BaseModel):
-    store_id: int
-    store_channel_group_id: int
+    store_id: uuid.UUID
+    store_channel_group_id: uuid.UUID
     code: Annotated[str, Field(min_length=1, max_length=50)]
     name: Annotated[str, Field(min_length=1, max_length=100)]
     description: str | None = None
@@ -208,8 +209,8 @@ class StoreChannelCreate(StoreChannelBase):
 
 
 class StoreChannelUpdate(BaseModel):
-    store_id: int | None = None
-    store_channel_group_id: int | None = None
+    store_id: uuid.UUID | None = None
+    store_channel_group_id: uuid.UUID | None = None
     code: str | None = None
     name: str | None = None
     description: str | None = None
@@ -218,6 +219,6 @@ class StoreChannelUpdate(BaseModel):
 
 
 class StoreChannelRead(StoreChannelBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
     store: StoreReadNested | None = None
     channel_group: StoreChannelGroupReadNested | None = None
