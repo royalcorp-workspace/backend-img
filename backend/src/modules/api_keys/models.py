@@ -7,8 +7,9 @@ permissions, and usage tracking for developer-facing products.
 from datetime import datetime
 from typing import Any
 
+import uuid as uuid_pkg
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database.models import TimestampMixin
@@ -22,7 +23,7 @@ class APIKey(Base, TimestampMixin):
     __tablename__ = "api_keys"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), index=True)
+    user_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     key_hash: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     key_prefix: Mapped[str] = mapped_column(String(20), index=True)
@@ -48,7 +49,7 @@ class KeyUsage(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
     api_key_id: Mapped[int] = mapped_column(Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), index=True)
+    user_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
     endpoint: Mapped[str] = mapped_column(String(255), index=True)
     method: Mapped[str] = mapped_column(String(10))
     status_code: Mapped[int] = mapped_column(Integer, index=True)

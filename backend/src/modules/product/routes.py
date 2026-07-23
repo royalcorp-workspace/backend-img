@@ -1,5 +1,6 @@
 import asyncio
 from typing import Annotated, Any
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
@@ -152,8 +153,10 @@ async def list_products(
     product_service: ProductServiceDep,
     page: int = 1,
     items_per_page: int = 10,
-    category_id: int | None = None,
-    status: bool | None = None,
+    category_id: UUID | None = None,
+    status: int | None = None,
+    best_seller: bool | None = None,
+    is_new: bool | None = None,
     search: str | None = None,
 ) -> dict[str, Any]:
     filters = {}
@@ -161,6 +164,10 @@ async def list_products(
         filters["category_id"] = category_id
     if status is not None:
         filters["status"] = status
+    if best_seller is not None:
+        filters["best_seller"] = best_seller
+    if is_new is not None:
+        filters["is_new"] = is_new
     if search:
         filters["name__ilike"] = f"%{search}%"
     crud_data = await product_service.get_paginated(
@@ -194,7 +201,7 @@ async def list_products(
     },
 )
 async def list_product_reviews(
-    product_id: int,
+    product_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:read"))],
     product_service: ProductServiceDep,
@@ -442,7 +449,7 @@ async def create_product(
     },
 )
 async def get_product(
-    product_id: int,
+    product_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:read"))],
     product_service: ProductServiceDep,
@@ -567,7 +574,7 @@ async def get_product(
     },
 )
 async def update_product(
-    product_id: int,
+    product_id: UUID,
     product_in: ProductUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
@@ -604,7 +611,7 @@ async def update_product(
     },
 )
 async def delete_product(
-    product_id: int,
+    product_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:delete"))],
     product_service: ProductServiceDep,
@@ -653,7 +660,7 @@ async def delete_product(
     },
 )
 async def add_product_image(
-    product_id: int,
+    product_id: UUID,
     image_in: ProductImageCreate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
@@ -685,7 +692,7 @@ async def add_product_image(
     },
 )
 async def delete_product_image(
-    image_id: int,
+    image_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
     image_service: ImageServiceDep,
@@ -753,7 +760,7 @@ async def delete_product_image(
     },
 )
 async def add_product_variant(
-    product_id: int,
+    product_id: UUID,
     variant_in: ProductVariantCreate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
@@ -826,7 +833,7 @@ async def add_product_variant(
     },
 )
 async def update_product_variant(
-    variant_id: int,
+    variant_id: UUID,
     variant_in: ProductVariantCreate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
@@ -857,7 +864,7 @@ async def update_product_variant(
     },
 )
 async def delete_product_variant(
-    variant_id: int,
+    variant_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
     variant_service: VariantServiceDep,
@@ -899,7 +906,7 @@ async def delete_product_variant(
     },
 )
 async def add_product_color(
-    product_id: int,
+    product_id: UUID,
     color_in: ProductColorCreate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
@@ -946,7 +953,7 @@ async def add_product_color(
     },
 )
 async def update_product_color(
-    color_id: int,
+    color_id: UUID,
     color_in: ProductColorCreate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
@@ -977,7 +984,7 @@ async def update_product_color(
     },
 )
 async def delete_product_color(
-    color_id: int,
+    color_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("products:update"))],
     color_service: ColorServiceDep,
@@ -987,6 +994,7 @@ async def delete_product_color(
 
 @router.post(
     "/webhook-sync",
+    openapi_extra={"security": []},
     summary="Receiver Webhook Sync Produk POS",
     description="""
     Menerima payload JSON untuk sinkronisasi produk secara async (background task) atau sync.

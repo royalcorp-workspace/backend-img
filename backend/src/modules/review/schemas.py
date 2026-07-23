@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -6,7 +7,7 @@ from ..common.schemas import TimestampSchema
 
 
 class ReviewBase(BaseModel):
-    product_id: int
+    product_id: UUID
     order_id: int | None = None
     user_name: str | None = None
     user_email: str | None = None

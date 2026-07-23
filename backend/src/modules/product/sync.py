@@ -273,18 +273,19 @@ async def sync_products_data(db: AsyncSession, payload: dict[str, Any]) -> dict[
                         variant_name = sku or "Standard"
                     length = safe_float(v_item.get("length"))
                     width = safe_float(v_item.get("width"))
-                    price = safe_float(v_item.get("price"))
+                    item_price = v_item.get("price")
 
                     variant_data = {
                         "sku": sku,
                         "variant_name": variant_name,
-                        "price": price,
                         "attributes": {
                             "length": length,
                             "width": width,
                             "status": True,
                         },
                     }
+                    if item_price is not None:
+                        variant_data["price"] = safe_float(item_price)
 
                     if sku in existing_variants:
                         variant = existing_variants[sku]
@@ -292,6 +293,7 @@ async def sync_products_data(db: AsyncSession, payload: dict[str, Any]) -> dict[
                             setattr(variant, k, v)
                         results["updated_variants"] += 1
                     else:
+                        variant_data.setdefault("price", safe_float(item.get("base_price") or 0))
                         variant = ProductVariant(product_id=product.id, **variant_data)
                         db.add(variant)
                         results["inserted_variants"] += 1

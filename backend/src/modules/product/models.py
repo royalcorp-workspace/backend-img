@@ -142,6 +142,8 @@ class PriceProductSettingItem(Base):
     editor: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    setting: Mapped["PriceProductSetting"] = relationship("PriceProductSetting", lazy="selectin", init=False)
+
 
 class PriceProductSetting(Base, TimestampMixin):
     __tablename__ = "price_product_settings"

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from ....infrastructure.auth.routes import router as auth_router
 from ....modules.api_keys.routes import router as api_keys_router
+from ....modules.buffer.routes import router as buffers_router
 from ....modules.category.routes import router as categories_router
 from ....modules.content.routes import router as content_router
 from ....modules.courier.routes import router as couriers_router
@@ -22,6 +23,13 @@ router = APIRouter(prefix="/v1")
 router.include_router(users_router, prefix="/users")
 router.include_router(tiers_router, prefix="/tiers")
 router.include_router(rate_limits_router, prefix="/rate-limits")
+# Custom auth router owns `/auth/login`, `/auth/logout`, `/auth/firebase-login`,
+# `/auth/oauth/google/*`, and `/auth/check-auth`. It intentionally does NOT
+# include crudauth's built-in `auth.router` here: that router also registers a
+# `POST /login` using `OAuth2PasswordRequestForm` (expects `username`, not
+# `email`). Mounting both creates two conflicting `/auth/login` routes and a
+# client sending `{email, password}` hits the wrong one -> 422. The custom router
+# reuses crudauth's transports/sessions via `auth`/`_bearer_transport` directly.
 router.include_router(auth_router, prefix="/auth")
 router.include_router(api_keys_router, prefix="/api-keys")
 router.include_router(categories_router, prefix="/categories")
@@ -36,3 +44,4 @@ router.include_router(payment_methods_router, prefix="/payment-methods")
 router.include_router(stores_router, prefix="/stores")
 router.include_router(content_router, prefix="/content")
 router.include_router(sync_router, prefix="/sync")
+router.include_router(buffers_router, prefix="/buffers")

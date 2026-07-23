@@ -8,67 +8,72 @@ from ..customer.schemas import CustomerRead
 from ..product.schemas import ProductRead, ProductVariantRead
 
 
-class OrderItemBase(BaseModel):
+class BufferItemBase(BaseModel):
     product_id: UUID
     product_variant_id: UUID | None = None
-    product_color_id: UUID | None = None
+    name: str | None = None
     quantity: int = 1
     unit_price: float = 0.0
+    total: float = 0.0
     discount_nominal: float = 0.0
     discount_percent: float = 0.0
-    total: float = 0.0
-    weight: int = 0
-    name: str | None = None
     item_notes: str | None = None
     meta: dict[str, Any] | None = None
 
 
-class OrderItemCreate(OrderItemBase):
+class BufferItemCreate(BufferItemBase):
     pass
 
 
-class OrderItemRead(OrderItemBase, TimestampSchema):
+class BufferItemRead(BufferItemBase, TimestampSchema):
     id: UUID
-    order_id: UUID
+    buffer_id: UUID
     product: ProductRead | None = None
     variant: ProductVariantRead | None = None
 
 
-class OrderBase(BaseModel):
-    customer_id: UUID
-    status: int = 0
-    payment_method: str | None = None
-    payment_status: int | None = None
+class BufferBase(BaseModel):
+    customer_id: UUID | None = None
+    session_id: str | None = None
+    customer_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
     subtotal: float | None = 0.0
     tax: float | None = 0.0
     discount: float | None = 0.0
     total: float | None = 0.0
-    notes: str | None = None
     meta: dict[str, Any] | None = None
 
 
-class Order(OrderBase, TimestampSchema):
+class Buffer(BufferBase, TimestampSchema):
     id: UUID
 
 
-class OrderCreate(OrderBase):
-    items: list[OrderItemCreate] = []
+class BufferCreate(BufferBase):
+    pass
 
 
-class OrderUpdate(BaseModel):
+class BufferUpdate(BaseModel):
     customer_id: UUID | None = None
-    status: int | None = None
-    payment_method: str | None = None
-    payment_status: int | None = None
+    session_id: str | None = None
+    customer_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
     subtotal: float | None = None
     tax: float | None = None
     discount: float | None = None
     total: float | None = None
-    notes: str | None = None
     meta: dict[str, Any] | None = None
 
 
-class OrderRead(OrderBase, TimestampSchema):
+class BufferRead(BufferBase, TimestampSchema):
     id: UUID
     customer: CustomerRead | None = None
-    items: list[OrderItemRead] = []
+    items: list[BufferItemRead] = []
+
+
+class BufferCheckout(BaseModel):
+    payment_method: str | None = None
+    payment_status: int | None = None
+    notes: str | None = None
+    meta: dict[str, Any] | None = None
