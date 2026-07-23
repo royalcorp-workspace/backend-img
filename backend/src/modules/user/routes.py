@@ -23,6 +23,7 @@ router = APIRouter(tags=["Users"])
 
 @router.post(
     "/",
+    openapi_extra={"security": []},
     status_code=201,
     response_model=UserRead,
     summary="Create New User Account",
@@ -117,6 +118,7 @@ async def get_current_user_profile(
 
 @router.get(
     "/{username}",
+    openapi_extra={"security": []},
     response_model=UserRead,
     summary="Get User Profile by Username",
     description="""

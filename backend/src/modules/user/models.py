@@ -1,8 +1,11 @@
+import uuid as uuid_pkg
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TIMESTAMP
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
@@ -15,14 +18,12 @@ if TYPE_CHECKING:
 class User(Base, TimestampMixin, SoftDeleteMixin):
     """User model representing application users."""
 
-    __tablename__ = "user"
+    __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(
-        "id",
-        autoincrement=True,
-        nullable=False,
-        unique=True,
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
         primary_key=True,
+        default=uuid_pkg.uuid4,
         init=False,
     )
 
@@ -46,13 +47,13 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     github_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
     firebase_uid: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, default=None)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), default=None)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email_verified: Mapped[bool] = mapped_column(nullable=False, server_default="false", default=False)
     oauth_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
     roles: Mapped[list["Role"]] = relationship(
-        "Role", secondary="rbac_user_roles", back_populates="users", lazy="selectin", init=False
+        "Role", secondary="rbac_user_roles", back_populates="users", lazy="noload", init=False
     )
 
     @property

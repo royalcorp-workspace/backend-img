@@ -11,6 +11,7 @@ from starlette.responses import Response
 from ....infrastructure.auth.http_exceptions import (
     HTTPException,
 )
+from ....infrastructure.config.settings import get_settings
 from ....infrastructure.logging import get_logger
 from ..constants import EXCEPTION_MAPPING, GENERIC_ERROR_MESSAGE, SUPPORT_ID_LENGTH
 from ..exceptions import (
@@ -19,6 +20,7 @@ from ..exceptions import (
 )
 
 logger = get_logger()
+settings = get_settings()
 
 
 def _generate_support_id() -> str:
@@ -42,9 +44,22 @@ class CatchAllErrorMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         try:
             return await call_next(request)
+        except HTTPException:
+            raise
         except Exception as exc:
             support_id = _generate_support_id()
             logger.exception(f"Unhandled error [{support_id}] on {request.method} {request.url.path}: {exc}")
+
+            if settings.DEBUG:
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": str(exc),
+                        "support_id": support_id,
+                        "type": type(exc).__name__,
+                    },
+                )
+
             return JSONResponse(
                 status_code=500,
                 content={"detail": GENERIC_ERROR_MESSAGE, "support_id": support_id},

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.dependencies import get_optional_principal
 from src.interfaces.main import app
+from src.modules.customer.models import Address, Customer
 from src.modules.user.models import User
 
 ROUTES = "src.infrastructure.auth.routes"
@@ -23,19 +24,59 @@ ROUTES = "src.infrastructure.auth.routes"
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, test_user: dict):
-    """A valid username/password logs in: 200, a CSRF token, and a session cookie.
+    """A valid email/password logs in: 200, a CSRF token, and a session cookie.
 
     Exercises the real crudauth path end-to-end (authenticate_password against the
     test DB, create_session on the in-memory backend, set_session_cookies).
     """
     response = await client.post(
         "/api/v1/auth/login",
-        data={"username": test_user["username"], "password": test_user["password"]},
+        data={"email": test_user["email"], "password": test_user["password"]},
     )
 
     assert response.status_code == 200
     assert response.json()["csrf_token"]
+    assert response.json()["user"]["email"] == test_user["email"]
     assert any(cookie == "session_id" for cookie in response.cookies)
+
+
+@pytest.mark.asyncio
+async def test_login_returns_user_with_customer_and_addresses(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict
+):
+    """Login response embeds the related customer and addresses, plus an access token."""
+    customer = Customer(
+        name=test_user["name"],
+        email=test_user["email"],
+        user_id=test_user["id"],
+        phone="08123456789",
+    )
+    db_session.add(customer)
+    address = Address(
+        label="Rumah",
+        recipient_name=test_user["name"],
+        phone="08123456789",
+        address="Jl. Test No. 1",
+        city_id=test_user["id"],
+        user_id=test_user["id"],
+        is_primary=True,
+    )
+    db_session.add(address)
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"email": test_user["email"], "password": test_user["password"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+    assert body["token_type"] == "bearer"
+    assert body["user"]["id"] == str(test_user["id"])
+    assert body["user"]["customer"]["user_id"] == str(test_user["id"])
+    assert len(body["user"]["customer"]["addresses"]) == 1
+    assert body["user"]["customer"]["addresses"][0]["user_id"] == str(test_user["id"])
 
 
 @pytest.mark.asyncio
@@ -43,7 +84,7 @@ async def test_login_wrong_password(client: AsyncClient, test_user: dict):
     """An incorrect password is rejected with 401."""
     response = await client.post(
         "/api/v1/auth/login",
-        data={"username": test_user["username"], "password": "wrong-password"},
+        data={"email": test_user["email"], "password": "wrong-password"},
     )
 
     assert response.status_code == 401
@@ -54,7 +95,7 @@ async def test_login_then_logout(client: AsyncClient, test_user: dict):
     """Logging in then logging out (echoing the CSRF token) succeeds and clears the session."""
     login = await client.post(
         "/api/v1/auth/login",
-        data={"username": test_user["username"], "password": test_user["password"]},
+        data={"email": test_user["email"], "password": test_user["password"]},
     )
     assert login.status_code == 200
     csrf_token = login.json()["csrf_token"]
@@ -215,10 +256,33 @@ async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session:
 
     response = await client.post(
         "/api/v1/auth/login",
-        data={"username": "deleted_user", "password": "Password123!"},
+        data={"email": "deleted@example.com", "password": "Password123!"},
     )
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_login_unverified_email_rejected(client: AsyncClient, db_session: AsyncSession, test_tier: dict):
+    """An unverified email account is rejected with 403, matching customer login behavior."""
+    user = User(
+        name="Unverified User",
+        username="unverified_user",
+        email="unverified@example.com",
+        hashed_password=get_password_hash("Password123!"),
+        email_verified=False,
+        tier_id=test_tier["id"],
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"email": "unverified@example.com", "password": "Password123!"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Email not verified"
 
 
 @pytest.mark.asyncio
@@ -233,7 +297,7 @@ async def test_logout_without_csrf_token_rejected(client: AsyncClient, test_user
     """A logged-in session still can't mutate without the CSRF header (403)."""
     login = await client.post(
         "/api/v1/auth/login",
-        data={"username": test_user["username"], "password": test_user["password"]},
+        data={"email": test_user["email"], "password": test_user["password"]},
     )
     assert login.status_code == 200
 
@@ -247,7 +311,7 @@ async def test_refresh_csrf_token_success(client: AsyncClient, test_user: dict):
     """With a valid session cookie, /refresh-csrf mints a fresh token (no CSRF header needed)."""
     login = await client.post(
         "/api/v1/auth/login",
-        data={"username": test_user["username"], "password": test_user["password"]},
+        data={"email": test_user["email"], "password": test_user["password"]},
     )
     assert login.status_code == 200
 

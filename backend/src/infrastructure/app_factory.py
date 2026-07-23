@@ -340,8 +340,42 @@ def create_application(
             )
             if "tags" in schema:
                 schema["tags"] = sorted(schema["tags"], key=lambda t: t.get("name", "").lower())
+            schema.setdefault("components", {})
+            schema["components"]["securitySchemes"] = {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                }
+            }
+            schema["security"] = [{"BearerAuth": []}]
             return schema
 
         application.include_router(docs_router)
+
+        _original_openapi = application.openapi
+
+        def _custom_openapi() -> dict[str, Any]:
+            schema = get_openapi(
+                title=metadata.get("title", "API"),
+                version=metadata.get("version", "0.1.0"),
+                description=metadata.get("description", ""),
+                routes=application.routes,
+            )
+            if "tags" in schema:
+                schema["tags"] = sorted(schema["tags"], key=lambda t: t.get("name", "").lower())
+            schema.setdefault("components", {})
+            schema["components"]["securitySchemes"] = {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                }
+            }
+            schema["security"] = [{"BearerAuth": []}]
+            application.openapi_schema = schema
+            return schema
+
+        application.openapi = _custom_openapi
 
     return application

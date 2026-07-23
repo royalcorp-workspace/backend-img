@@ -88,6 +88,7 @@ async def test_permanent_delete_success(
     logger.info(f"Testing permanent deletion for user: {username}")
     response = await superuser_auth_client.delete(f"/api/v1/users/db/{username}")
 
+    logger.info(f"Response: {response.status_code} - {response.text}")
     assert response.status_code == 200
     data = response.json()
     assert data["message"] == "User data anonymized in compliance with GDPR"

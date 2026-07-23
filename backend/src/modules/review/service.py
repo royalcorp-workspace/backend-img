@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +12,7 @@ logger = get_logger()
 
 
 class ReviewService:
-    async def get_by_product_id(self, db: AsyncSession, product_id: int) -> dict[str, Any]:
+    async def get_by_product_id(self, db: AsyncSession, product_id: UUID) -> dict[str, Any]:
         result = await crud_reviews.get_multi(
             db=db, product_id=product_id, is_deleted=False
         )

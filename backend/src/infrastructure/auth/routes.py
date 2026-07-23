@@ -3,22 +3,32 @@ from typing import Annotated, Any
 from crudauth import Principal
 from crudauth.exceptions import UnauthorizedException
 from crudauth.oauth import OAuthState
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 
+from ...modules.customer.crud import crud_addresses, crud_customers
+from ...modules.customer.schemas import AddressRead, CustomerRead
 from ...modules.user.crud import crud_users
 from ...modules.user.enums import OAuthProvider
 from ...modules.user.firebase_auth import verify_firebase_id_token
 from ...modules.user.schemas import UserCreateInternal
-from ..dependencies import AsyncSessionDep, OAuth2FormDep
+from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
 from .oauth import OAUTH_STATE_TTL_SECONDS, oauth_account_service, oauth_providers, oauth_state_storage
+from .setup import _bearer_transport
 from .setup import auth as crud_auth
 
 logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
+
+
+class LoginForm(BaseModel):
+    """Login request body - accepts both form-data and JSON."""
+    email: str = Field(..., description="User email or username")
+    password: str = Field(..., description="User password")
 
 
 @router.post(
@@ -32,43 +42,148 @@ router = APIRouter(tags=["Authentication"])
             - A new session is created
             - A session ID is set as an HTTP-only cookie
             - A CSRF token is generated for protection against CSRF attacks
+            - A bearer access token is issued for authenticating other endpoints
+            - The response includes the user profile with its related customer and
+              addresses (looked up by the authenticated user's id)
 
             The endpoint is protected by rate limiting to prevent brute force attacks.
             After multiple failed attempts, further login attempts will be temporarily blocked.
+
+            Accepts both **application/x-www-form-urlencoded** (form data)
+            and **application/json** body formats.
             """,
     responses={
-        200: {"description": "Login successful, session created"},
+        200: {"description": "Login successful, session created; returns user with customer and addresses"},
         401: {"description": "Authentication failed"},
         429: {"description": "Too many login attempts, try again later"},
     },
-    response_description="CSRF token for use in subsequent requests",
+    response_description="CSRF token, access token, and the authenticated user with related customer and addresses",
+    openapi_extra={
+        "security": [],
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "email": {"type": "string", "description": "User email or username"},
+                            "password": {"type": "string", "description": "User password"}
+                        },
+                        "required": ["email", "password"]
+                    }
+                },
+                "application/x-www-form-urlencoded": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "email": {"type": "string", "description": "User email or username"},
+                            "password": {"type": "string", "description": "User password"}
+                        },
+                        "required": ["email", "password"]
+                    }
+                }
+            }
+        }
+    }
 )
 async def login(
     request: Request,
     response: Response,
-    form_data: OAuth2FormDep,
     db: AsyncSessionDep,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Login endpoint to get session cookies.
+
+    Accepts both form-data (application/x-www-form-urlencoded) and JSON
+    (application/json) request bodies.
 
     The session ID is set as an HTTP-only cookie. The CSRF token is set as a
     regular cookie and returned in the response. Credentials are verified by
     crudauth's hardened ``authenticate_password`` (timing-equalized check,
     disabled-account guard, escalating lockout that returns 429 + Retry-After).
     """
-    user = await crud_auth.authenticate_password(db, form_data.username, form_data.password, request=request)
+    # Parse credentials from request body (supports both JSON and form-data)
+    content_type = request.headers.get("content-type", "").lower()
 
+    email = ""
+    password = ""
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            email = body.get("email", "")
+            password = body.get("password", "")
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid JSON body",
+            )
+    else:
+        try:
+            form = await request.form()
+            email = form.get("email", "")
+            password = form.get("password", "")
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Request body must be form-data or JSON with 'email' and 'password' fields",
+            )
+
+    if not email or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'email' and 'password' are required",
+        )
+
+    logger.info("Login attempt", extra={"email": email})
+
+    try:
+        user = await crud_auth.authenticate_password(db, email, password, request=request)
+    except HTTPException as exc:
+        logger.warning("Login failed", extra={"email": email, "status": exc.status_code, "detail": exc.detail})
+        raise
+    except Exception as exc:
+        logger.error("Login unexpected error", extra={"email": email, "error": str(exc)}, exc_info=True)
+        raise
+
+    email_verified = crud_auth.repo.get(user, "email_verified", False)
+    logger.info("Login authenticate_password success", extra={"email": email, "email_verified": email_verified})
+
+    if not email_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+
+    user_id = crud_auth.repo.user_id(user)
     session_id, csrf_token = await crud_auth.sessions.create_session(
         request,
-        user_id=crud_auth.repo.user_id(user),
+        user_id=user_id,
         metadata={"login_type": "password", "username": crud_auth.repo.get(user, "username")},
     )
     crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 
-    return {"csrf_token": csrf_token}
+    token_body = _bearer_transport.issue_tokens(user, response=response)
 
+    customer_result = await crud_customers.get_multi(
+        db, schema_to_select=CustomerRead, user_id=user_id, deleted=False
+    )
+    customer = customer_result["data"][0] if customer_result.get("data") else None
+    if customer:
+        address_result = await crud_addresses.get_multi(
+            db, schema_to_select=AddressRead, user_id=user_id, deleted=False
+        )
+        customer["addresses"] = address_result.get("data", []) if address_result else []
 
-from pydantic import BaseModel, Field
+    return {
+        "csrf_token": csrf_token,
+        "access_token": token_body["access_token"],
+        "token_type": token_body.get("token_type", "bearer"),
+        "user": {
+            "id": user_id,
+            "email": crud_auth.repo.get(user, "email"),
+            "name": crud_auth.repo.get(user, "name"),
+            "username": crud_auth.repo.get(user, "username"),
+            "customer": customer,
+        },
+    }
+
 
 class FirebaseLoginRequest(BaseModel):
     firebase_token: str = Field(
@@ -83,9 +198,20 @@ class FirebaseLoginResponse(BaseModel):
         description="CSRF Token untuk mengamankan request berikutnya.",
         examples=["a1b2c3d4e5f6g7h8..."]
     )
+    access_token: str = Field(
+        ...,
+        description="Access token JWT untuk mengakses endpoint lainnya (berlaku 1 jam).",
+        examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."]
+    )
+    token_type: str = Field(
+        default="bearer",
+        description="Tipe token, selalu 'bearer'.",
+        examples=["bearer"]
+    )
 
 @router.post(
     "/firebase-login",
+    openapi_extra={"security": []},
     summary="Firebase Login",
     description="""
             Authenticates a user using a Firebase ID token.
@@ -203,7 +329,14 @@ async def firebase_login(
     )
     crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 
-    return {"csrf_token": csrf_token}
+    user = await crud_users.get(db=db, id=user_id, is_deleted=False)
+    token_body = _bearer_transport.issue_tokens(user, response=response)
+
+    return {
+        "csrf_token": csrf_token,
+        "access_token": token_body["access_token"],
+        "token_type": token_body.get("token_type", "bearer"),
+    }
 
 
 @router.post(
@@ -279,6 +412,7 @@ async def refresh_csrf_token(
 
 @router.get(
     "/oauth/google",
+    openapi_extra={"security": []},
     summary="Initiate Google OAuth Login",
     description="""
             Starts the OAuth 2.0 authentication flow with Google.
@@ -323,6 +457,7 @@ async def oauth_google_login(
 
 @router.get(
     "/oauth/callback/google",
+    openapi_extra={"security": []},
     summary="Google OAuth Callback Handler",
     description="""
             Processes the authentication callback from Google OAuth.
@@ -433,7 +568,7 @@ async def oauth_google_callback(
         )
 
 
-@router.get("/check-auth")
+@router.get("/check-auth", openapi_extra={"security": []})
 async def check_auth(
     principal: Annotated[Principal | None, Depends(get_optional_principal)],
     db: AsyncSessionDep,

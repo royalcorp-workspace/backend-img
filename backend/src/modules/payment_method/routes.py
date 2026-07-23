@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
@@ -13,20 +14,21 @@ from .schemas import PaymentMethodCreate, PaymentMethodRead, PaymentMethodUpdate
 router = APIRouter(tags=["Payment Methods"])
 
 PAYMENT_METHOD_EXAMPLE = {
-    "id": 1,
-    "code": "BCA_VA",
+    "id": "019f5933-08c8-7082-b1cd-7185cff32192",
+    "code": "bca_va",
     "name": "BCA Virtual Account",
-    "type": "virtual_account",
+    "type": 2,
     "provider": "Midtrans",
     "image": "https://example.com/bca.png",
     "has_charge": True,
-    "charge_type": "fixed",
+    "charge_type": 1,
     "charge_value": 4000.0,
     "charge_bearer": "customer",
     "minimum_amount": 10000.0,
     "maximum_amount": None,
     "sort_order": 1,
-    "status": True,
+    "status": 1,
+    "bank_info": None,
     "created_at": "2026-07-09T13:00:00",
     "updated_at": "2026-07-09T13:00:00",
 }
@@ -102,7 +104,7 @@ async def list_payment_methods(
     },
 )
 async def get_payment_method(
-    method_id: int,
+    method_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("payment-methods:read"))],
     payment_method_service: PaymentMethodServiceDep,
@@ -187,7 +189,7 @@ async def create_payment_method(
     },
 )
 async def update_payment_method(
-    method_id: int,
+    method_id: UUID,
     method_in: PaymentMethodUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("payment-methods:update"))],
@@ -224,7 +226,7 @@ async def update_payment_method(
     },
 )
 async def delete_payment_method(
-    method_id: int,
+    method_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("payment-methods:delete"))],
     payment_method_service: PaymentMethodServiceDep,

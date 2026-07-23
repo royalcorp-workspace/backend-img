@@ -73,7 +73,7 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 create_admin_interface(app)
 
 
-@app.get("/health", tags=["System"])
+@app.get("/health", tags=["System"], openapi_extra={"security": []})
 async def health_check() -> dict[str, str]:
     """Health check endpoint for monitoring and load balancers."""
     return {"status": "healthy"}

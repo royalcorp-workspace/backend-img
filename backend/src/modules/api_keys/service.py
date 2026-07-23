@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import hmac
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -115,7 +116,7 @@ class APIKeyService:
 
     async def create_api_key(
         self,
-        user_id: int,
+        user_id: uuid.UUID,
         key_data: APIKeyCreate,
         db: AsyncSession,
     ) -> dict[str, Any]:
@@ -155,7 +156,7 @@ class APIKeyService:
 
     async def get_user_api_keys(
         self,
-        user_id: int,
+        user_id: uuid.UUID,
         db: AsyncSession,
         active_only: bool = True,
         limit: int = 50,
@@ -196,7 +197,7 @@ class APIKeyService:
     async def get_api_key(
         self,
         key_id: int,
-        user_id: int,
+        user_id: uuid.UUID,
         db: AsyncSession,
     ) -> dict[str, Any]:
         """Get a specific API key for a user.
@@ -226,7 +227,7 @@ class APIKeyService:
     async def update_api_key(
         self,
         key_id: int,
-        user_id: int,
+        user_id: uuid.UUID,
         update_data: APIKeyUpdate,
         db: AsyncSession,
     ) -> dict[str, Any]:
@@ -264,7 +265,7 @@ class APIKeyService:
     async def delete_api_key(
         self,
         key_id: int,
-        user_id: int,
+        user_id: uuid.UUID,
         db: AsyncSession,
     ) -> None:
         """Delete (deactivate) an API key.
@@ -372,7 +373,7 @@ class APIKeyService:
     async def record_usage(
         self,
         api_key_id: int,
-        user_id: int,
+        user_id: uuid.UUID,
         usage_data: KeyUsageCreate,
         db: AsyncSession,
     ) -> dict[str, Any]:
@@ -407,7 +408,7 @@ class APIKeyService:
     async def get_key_usage(
         self,
         key_id: int,
-        user_id: int,
+        user_id: uuid.UUID,
         db: AsyncSession,
         limit: int = 100,
         offset: int = 0,
@@ -439,7 +440,7 @@ class APIKeyService:
     async def get_usage_analytics(
         self,
         key_id: int,
-        user_id: int,
+        user_id: uuid.UUID,
         db: AsyncSession,
         days: int = 30,
     ) -> dict[str, Any]:
@@ -487,7 +488,7 @@ class APIKeyService:
 
     async def get_user_summary(
         self,
-        user_id: int,
+        user_id: uuid.UUID,
         db: AsyncSession,
     ) -> dict[str, Any]:
         """Get comprehensive API key summary for a user.

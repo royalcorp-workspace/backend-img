@@ -91,7 +91,7 @@ class StoreChannelGroup(Base, TimestampMixin):
 
 
 class Store(Base, TimestampMixin):
-    __tablename__ = "stores"
+    __tablename__ = "store"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -137,7 +137,7 @@ class StoreChannel(Base, TimestampMixin):
         default=uuid.uuid4,
         init=False,
     )
-    store_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stores.id"), nullable=False)
+    store_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("store.id"), nullable=False)
     store_channel_group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("store_channel_group.id"), nullable=False)
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

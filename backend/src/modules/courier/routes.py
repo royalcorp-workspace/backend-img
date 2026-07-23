@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
@@ -20,10 +21,10 @@ from .schemas import (
 router = APIRouter()
 
 COURIER_EXAMPLE = {
-    "id": 1,
-    "code": "JNE_REG",
-    "name": "JNE Regular",
-    "type": "regular",
+    "id": "ac2fda49-d3cd-4e0b-8c74-3be6ae4133f0",
+    "code": "jne",
+    "name": "JNE Express",
+    "type": 1,
     "is_active": True,
     "sort_order": 1,
     "created_at": "2026-07-09T13:00:00",
@@ -32,20 +33,20 @@ COURIER_EXAMPLE = {
 }
 
 SHIPPING_ADDRESS_EXAMPLE = {
-    "id": 1,
-    "courier_id": 1,
-    "sub_district_id": 1001,
-    "type": "regular",
-    "price": 15000.0,
+    "id": "019f5a2e-c083-72ac-9a70-c80c9eb5532f",
+    "courier_id": "ac2fda49-d3cd-4e0b-8c74-3be6ae4133f0",
+    "sub_district_id": "2202ecf7-e399-4565-9a8f-37b91d683912",
+    "type": 2,
+    "price": 1000.0,
     "is_active": True,
-    "sort_order": 1,
+    "sort_order": 0,
     "created_at": "2026-07-09T13:00:00",
     "updated_at": "2026-07-09T13:00:00",
     "courier": {
-        "id": 1,
-        "code": "JNE_REG",
-        "name": "JNE Regular",
-        "type": "regular",
+        "id": "ac2fda49-d3cd-4e0b-8c74-3be6ae4133f0",
+        "code": "jne",
+        "name": "JNE Express",
+        "type": 1,
         "is_active": True,
         "sort_order": 1,
     },
@@ -127,7 +128,7 @@ async def list_couriers(
     },
 )
 async def get_courier(
-    courier_id: int,
+    courier_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("couriers:read"))],
     courier_service: CourierServiceDep,
@@ -214,7 +215,7 @@ async def create_courier(
     },
 )
 async def update_courier(
-    courier_id: int,
+    courier_id: UUID,
     courier_in: CourierUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("couriers:update"))],
@@ -252,7 +253,7 @@ async def update_courier(
     },
 )
 async def delete_courier(
-    courier_id: int,
+    courier_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("couriers:delete"))],
     courier_service: CourierServiceDep,
@@ -306,7 +307,7 @@ async def list_shipping_addresses(
     responses={200: {"content": {"application/json": {"example": SHIPPING_ADDRESS_EXAMPLE}}}},
 )
 async def get_shipping_address(
-    address_id: int,
+    address_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("couriers:read"))],
     courier_service: CourierServiceDep,
@@ -345,7 +346,7 @@ async def create_shipping_address(
     responses={200: {"content": {"application/json": {"example": SHIPPING_ADDRESS_EXAMPLE}}}},
 )
 async def update_shipping_address(
-    address_id: int,
+    address_id: UUID,
     address_in: ShippingAddressUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("couriers:update"))],
@@ -367,7 +368,7 @@ async def update_shipping_address(
     tags=["Shipping Addresses"],
 )
 async def delete_shipping_address(
-    address_id: int,
+    address_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("couriers:delete"))],
     courier_service: CourierServiceDep,

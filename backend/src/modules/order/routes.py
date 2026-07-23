@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
@@ -40,11 +41,17 @@ ORDER_EXAMPLE = {
             "id": 1,
             "order_id": 1,
             "product_id": 1,
-            "variant_id": 1,
+            "product_variant_id": 1,
+            "product_color_id": None,
             "quantity": 1,
-            "price": 1000000.0,
-            "discount": 0.0,
+            "unit_price": 1000000.0,
+            "discount_nominal": 0.0,
+            "discount_percent": 0.0,
             "total": 1000000.0,
+            "weight": 0,
+            "name": "Product Name",
+            "item_notes": None,
+            "meta": None,
             "created_at": "2026-07-09T13:00:00",
             "updated_at": "2026-07-09T13:00:00",
             "product": {
@@ -69,7 +76,7 @@ ORDER_EXAMPLE = {
                 "best_seller": True,
                 "is_new": False,
                 "sort_order": 1,
-                "status": True,
+                "status": 1,
                 "created_at": "2026-07-09T13:00:00",
                 "updated_at": "2026-07-09T13:00:00"
             },
@@ -78,12 +85,9 @@ ORDER_EXAMPLE = {
                 "product_id": 1,
                 "sku": "DVL100220010607S200090",
                 "variant_name": "200 X 090",
-                "width": 90.0,
-                "length": 200.0,
-                "height": 0.0,
-                "weight": 0.0,
                 "price": 0.0,
-                "status": True,
+                "stock_qty": 0,
+                "attributes": {},
                 "created_at": "2026-07-09T13:00:00",
                 "updated_at": "2026-07-09T13:00:00"
             }
@@ -162,7 +166,7 @@ async def list_orders(
     },
 )
 async def get_order(
-    order_id: int,
+    order_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("orders:read"))],
     order_service: OrderServiceDep,
@@ -241,7 +245,7 @@ async def create_order(
     },
 )
 async def update_order(
-    order_id: int,
+    order_id: UUID,
     order_in: OrderUpdate,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("orders:update"))],
@@ -272,7 +276,7 @@ async def update_order(
     },
 )
 async def delete_order(
-    order_id: int,
+    order_id: UUID,
     db: AsyncSessionDep,
     _: Annotated[dict[str, Any], Depends(require_permission("orders:delete"))],
     order_service: OrderServiceDep,

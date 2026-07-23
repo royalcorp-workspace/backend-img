@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Annotated, Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -30,7 +31,7 @@ class APIKeyCreate(APIKeyBase):
 class APIKeyCreateInternal(APIKeyBase):
     """Internal schema for creating a new API key with additional fields."""
 
-    user_id: int
+    user_id: UUID
     key_hash: str
     key_prefix: str
 
@@ -52,7 +53,7 @@ class APIKeyRead(TimestampSchema, APIKeyBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    user_id: int
+    user_id: UUID
     key_prefix: str
     last_used_at: datetime | None
     last_used_ip: str | None
@@ -94,7 +95,7 @@ class KeyUsageCreate(KeyUsageBase):
     """Schema for creating a new key usage record."""
 
     api_key_id: int
-    user_id: int
+    user_id: UUID
 
 
 class KeyUsageRead(TimestampSchema, KeyUsageBase):
@@ -104,7 +105,7 @@ class KeyUsageRead(TimestampSchema, KeyUsageBase):
 
     id: int
     api_key_id: int
-    user_id: int
+    user_id: UUID
 
 
 class KeyPermissionBase(BaseModel):
@@ -162,7 +163,7 @@ class KeyUsageAnalytics(BaseModel):
 class UserAPIKeySummary(BaseModel):
     """Schema for user API key summary."""
 
-    user_id: int
+    user_id: UUID
     total_keys: int
     active_keys: int
     total_requests: int
@@ -183,7 +184,7 @@ class APIKeyValidationResponse(BaseModel):
 
     is_valid: bool
     api_key_id: int | None = None
-    user_id: int | None = None
+    user_id: UUID | None = None
     permissions: dict[str, Any] | None = None
     usage_limits: dict[str, Any] | None = None
     error_message: str | None = None

@@ -12,26 +12,39 @@ from ....infrastructure.auth.http_exceptions import HTTPException
 from ....infrastructure.config import get_settings
 
 
-def extract_jde_rowset(payload: Any) -> Any:
+_ENDPOINT_ITEM_KEYS = {
+    "item-branch": {"branches", "items", "stores", "rows"},
+    "customer-master": {"customers", "branches"},
+}
+
+
+def extract_jde_rowset(payload: Any, endpoint: str = "") -> Any:
     """Extract the rowset/data list from a JDE payload.
 
-    Mirrors the normalization used by the sync services: prefer ``rowset``, then
-    ``data``, then a ``POS_*`` child key containing ``rowset``/``data``. A bare
-    list payload is returned as-is.
-
-    Returns the rowset value, or ``None`` when no recognizable structure exists.
+    Preferred keys depend on endpoint:
+      - item-branch: rowset, data, branches, items, stores, rows, POS_* wrappers
+      - customer-master: rowset, data, customers, branches, POS_* wrappers
+      - base-price: rowset, data, prices, POS_* wrappers
+    A bare list payload is returned as-is.
     """
     if isinstance(payload, list):
         return payload
     if not isinstance(payload, dict):
         return None
-    if "rowset" in payload:
-        return payload.get("rowset")
-    if "data" in payload:
-        return payload.get("data")
+    preferred_keys = ("rowset", "data", *_ENDPOINT_ITEM_KEYS.get(endpoint, ()))
+    for key in preferred_keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
     for key, value in payload.items():
         if key.startswith("POS_") and isinstance(value, dict):
-            return value.get("rowset") or value.get("data")
+            rowset = value.get("rowset") or value.get("data")
+            if isinstance(rowset, list):
+                return rowset
+    if endpoint == "item-branch":
+        for key, value in payload.items():
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                return value
     return None
 
 
@@ -61,17 +74,18 @@ def validate_and_log_jde_payload(
             detail=f"Respon JDE untuk '{endpoint}' tidak valid (bukan objek JSON).",
         )
 
-    rowset = extract_jde_rowset(payload)
+    rowset = extract_jde_rowset(payload, endpoint)
     if rowset is None:
+        allowed = ["rowset", "data", *_ENDPOINT_ITEM_KEYS.get(endpoint, ())]
         logger.error(
             f"Respon JDE untuk '{endpoint}' tidak mengandung data "
-            f"(rowset/data/POS_*). Kunci response: {list(payload.keys()) if isinstance(payload, dict) else payload}"
+            f"({', '.join(allowed)}). Kunci response: {list(payload.keys()) if isinstance(payload, dict) else payload}"
         )
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Format payload JDE tidak valid. Tidak ditemukan data 'rowset', "
-                f"'data' atau kunci POS_* dalam response JDE '{endpoint}'. "
+                f"Format payload JDE tidak valid. Tidak ditemukan data "
+                f"'{', '.join(allowed)}' dalam response JDE '{endpoint}'. "
                 f"Kunci response: {list(payload.keys()) if isinstance(payload, dict) else payload}"
             ),
         )

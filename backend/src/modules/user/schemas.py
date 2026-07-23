@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -18,6 +19,7 @@ class UserBase(BaseModel):
 class User(TimestampSchema, UserBase, PersistentDeletion):
     """Complete user model with all fields."""
 
+    id: UUID
     hashed_password: str
     is_superuser: bool = False
     profile_image_url: Annotated[
@@ -41,7 +43,7 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
 class UserRead(BaseModel):
     """Schema for reading user data, excludes sensitive information."""
 
-    id: int
+    id: UUID
     name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
     username: Annotated[
         str,
