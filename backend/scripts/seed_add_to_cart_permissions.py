@@ -15,18 +15,18 @@ from src.modules.rbac.models import Permission, RBACRolePermission, Role  # noqa
 logger = get_logger()
 
 
-BUFFER_PERMISSIONS = [
-    {"name": "buffers:read", "action": "read", "subject": "buffers", "description": "View buffers"},
-    {"name": "buffers:create", "action": "create", "subject": "buffers", "description": "Create buffers"},
-    {"name": "buffers:update", "action": "update", "subject": "buffers", "description": "Update buffers"},
-    {"name": "buffers:delete", "action": "delete", "subject": "buffers", "description": "Delete buffers"},
+ADD_TO_CART_PERMISSIONS = [
+    {"name": "add_to_cart:read", "action": "read", "subject": "add_to_cart", "description": "View add to cart"},
+    {"name": "add_to_cart:create", "action": "create", "subject": "add_to_cart", "description": "Create add to cart"},
+    {"name": "add_to_cart:update", "action": "update", "subject": "add_to_cart", "description": "Update add to cart"},
+    {"name": "add_to_cart:delete", "action": "delete", "subject": "add_to_cart", "description": "Delete add to cart"},
 ]
 
 
-async def seed_buffer_permissions() -> None:
+async def seed_add_to_cart_permissions() -> None:
     async with local_session() as session:
         created_perms = {}
-        for perm_data in BUFFER_PERMISSIONS:
+        for perm_data in ADD_TO_CART_PERMISSIONS:
             existing = await crud_permissions.get(db=session, name=perm_data["name"], is_deleted=False)
             if existing:
                 logger.info(f"Permission '{perm_data['name']}' already exists.")
@@ -56,7 +56,7 @@ async def seed_buffer_permissions() -> None:
             for perm_name, perm in created_perms.items():
                 perm_id = perm["id"] if isinstance(perm, dict) else perm["id"]
                 existing_rp = await crud_role_permissions.get(
-                    db=session, role_id=role.id, permission_id=perm_id
+                     db=session, role_id=role.id, permission_id=perm_id
                 )
                 if not existing_rp:
                     rp = RBACRolePermission(role_id=role.id, permission_id=perm_id)
@@ -66,8 +66,8 @@ async def seed_buffer_permissions() -> None:
                     logger.info(f"Role '{role.name}' already has '{perm_name}'")
 
         await session.commit()
-        logger.info("Buffer permissions seeded successfully.")
+        logger.info("Add to Cart permissions seeded successfully.")
 
 
 if __name__ == "__main__":
-    asyncio.run(seed_buffer_permissions())
+    asyncio.run(seed_add_to_cart_permissions())

@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from ..product.models import Product, ProductVariant
 
 
-class Buffer(Base, TimestampMixin):
-    __tablename__ = "buffers"
+class AddToCart(Base, TimestampMixin):
+    __tablename__ = "add_to_carts"
 
     id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -41,17 +41,17 @@ class Buffer(Base, TimestampMixin):
     editor: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
 
     customer: Mapped["Customer | None"] = relationship("Customer", lazy="selectin", init=False)
-    items: Mapped[list["BufferItem"]] = relationship(
-        "BufferItem",
-        back_populates="buffer",
+    items: Mapped[list["AddToCartItem"]] = relationship(
+        "AddToCartItem",
+        back_populates="add_to_cart",
         lazy="selectin",
         cascade="all, delete-orphan",
         init=False,
     )
 
 
-class BufferItem(Base, TimestampMixin):
-    __tablename__ = "buffer_items"
+class AddToCartItem(Base, TimestampMixin):
+    __tablename__ = "add_to_cart_items"
 
     id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -59,9 +59,9 @@ class BufferItem(Base, TimestampMixin):
         default=uuid_pkg.uuid4,
         init=False,
     )
-    buffer_id: Mapped[uuid_pkg.UUID] = mapped_column(
+    add_to_cart_id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("buffers.id", ondelete="CASCADE"),
+        ForeignKey("add_to_carts.id", ondelete="CASCADE"),
         nullable=False,
     )
     product_id: Mapped[uuid_pkg.UUID] = mapped_column(
@@ -84,6 +84,6 @@ class BufferItem(Base, TimestampMixin):
     item_notes: Mapped[str | None] = mapped_column(Text, default=None)
     meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
 
-    buffer: Mapped["Buffer"] = relationship("Buffer", back_populates="items", lazy="selectin", init=False)
+    add_to_cart: Mapped["AddToCart"] = relationship("AddToCart", back_populates="items", lazy="selectin", init=False)
     product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
     variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False, default=None)
