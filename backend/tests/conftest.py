@@ -166,6 +166,7 @@ async def test_user(db_session: AsyncSession, test_tier: dict):
         email=fake.email(),
         hashed_password=get_password_hash("Password123!"),
         is_superuser=False,
+        email_verified=True,
         tier_id=test_tier["id"],
         profile_image_url="https://example.com/test.jpg",
     )
@@ -193,6 +194,7 @@ async def test_user_2(db_session: AsyncSession, test_tier: dict):
         email=fake.email(),
         hashed_password=get_password_hash("Password123!"),
         is_superuser=False,
+        email_verified=True,
         tier_id=test_tier["id"],
         profile_image_url="https://example.com/test2.jpg",
     )

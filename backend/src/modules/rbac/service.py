@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
@@ -8,12 +9,12 @@ logger = get_logger()
 
 
 class RBACService:
-    async def get_user_permissions(self, db: AsyncSession, user_id: int) -> set[str]:
+    async def get_user_permissions(self, db: AsyncSession, user_id: uuid.UUID) -> set[str]:
         permissions = set()
-        user_roles = await crud_user_roles.get_multi(db=db, filters={"user_id": user_id})
+        user_roles = await crud_user_roles.get_multi(db=db, user_id=user_id)
         for ur in user_roles.get("data", []):
             role_perms = await crud_role_permissions.get_multi(
-                db=db, filters={"role_id": ur["role_id"]}
+                db=db, role_id=ur["role_id"]
             )
             for rp in role_perms.get("data", []):
                 perm = await crud_permissions.get(db=db, id=rp["permission_id"], is_deleted=False)
@@ -21,11 +22,11 @@ class RBACService:
                     permissions.add(perm["name"])
         return permissions
 
-    async def user_has_permission(self, db: AsyncSession, user_id: int, permission: str) -> bool:
+    async def user_has_permission(self, db: AsyncSession, user_id: uuid.UUID, permission: str) -> bool:
         perms = await self.get_user_permissions(db, user_id)
         return permission in perms
 
-    async def assign_role_to_user(self, db: AsyncSession, user_id: int, role_id: int) -> None:
+    async def assign_role_to_user(self, db: AsyncSession, user_id: uuid.UUID, role_id: int) -> None:
         existing = await crud_user_roles.get(db=db, user_id=user_id, role_id=role_id)
         if existing:
             return

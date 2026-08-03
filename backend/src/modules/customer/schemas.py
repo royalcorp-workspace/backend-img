@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -68,3 +68,4 @@ class CustomerUpdate(BaseModel):
 class CustomerRead(CustomerBase, TimestampSchema):
     id: uuid.UUID
     user_id: uuid.UUID | None = None
+    addresses: list[dict[str, Any]] = []

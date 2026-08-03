@@ -1,7 +1,9 @@
+import uuid as uuid_pkg
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
@@ -31,7 +33,7 @@ class Role(Base, TimestampMixin, SoftDeleteMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     users: Mapped[list["User"]] = relationship(
-        "User", secondary="rbac_user_roles", back_populates="roles", lazy="selectin", init=False
+        "User", secondary="rbac_user_roles", back_populates="roles", lazy="noload", init=False
     )
     permissions: Mapped[list["Permission"]] = relationship(
         "Permission",
@@ -70,7 +72,7 @@ class Permission(Base, TimestampMixin, SoftDeleteMixin):
 class RBACUserRole(Base):
     __tablename__ = "rbac_user_roles"
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), primary_key=True)
+    user_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("rbac_roles.id"), primary_key=True)
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default_factory=lambda: datetime.now(UTC), nullable=False, init=False

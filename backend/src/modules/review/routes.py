@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
@@ -33,8 +34,9 @@ router = APIRouter(tags=["Reviews"])
     },
 )
 async def list_reviews_by_product(
-    product_id: int,
+    product_id: UUID,
     db: AsyncSessionDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("reviews:read"))],
     review_service: ReviewServiceDep,
 ) -> Any:
     return await review_service.get_by_product_id(db, product_id)

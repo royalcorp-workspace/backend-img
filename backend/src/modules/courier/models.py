@@ -1,27 +1,34 @@
+import uuid as uuid_pkg
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
+from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
 
+if TYPE_CHECKING:
+    from .courier import Courier
 
-class Courier(Base, TimestampMixin, SoftDeleteMixin):
+
+class Courier(Base, TimestampMixin):
     __tablename__ = "couriers"
 
-    id: Mapped[int] = mapped_column(
-        autoincrement=True,
-        nullable=False,
-        unique=True,
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
         primary_key=True,
+        default=uuid_pkg.uuid4,
         init=False,
     )
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    type: Mapped[str] = mapped_column(String(50), default="regular")
+    type: Mapped[int | None] = mapped_column(Integer, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
     creator: Mapped[str | None] = mapped_column(String(100), default=None)
     editor: Mapped[str | None] = mapped_column(String(100), default=None)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
 
     shipping_addresses: Mapped[list["ShippingAddress"]] = relationship(
         "ShippingAddress",
@@ -32,23 +39,23 @@ class Courier(Base, TimestampMixin, SoftDeleteMixin):
     )
 
 
-class ShippingAddress(Base, TimestampMixin, SoftDeleteMixin):
+class ShippingAddress(Base, TimestampMixin):
     __tablename__ = "shipping_addresses"
 
-    id: Mapped[int] = mapped_column(
-        autoincrement=True,
-        nullable=False,
-        unique=True,
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
         primary_key=True,
+        default=uuid_pkg.uuid4,
         init=False,
     )
-    courier_id: Mapped[int] = mapped_column(ForeignKey("couriers.id", ondelete="CASCADE"), nullable=False)
-    sub_district_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
-    type: Mapped[str] = mapped_column(String(50), default="regular")
-    price: Mapped[float] = mapped_column(Float, default=0.0)
+    courier_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("couriers.id"), nullable=False)
+    sub_district_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    type: Mapped[int | None] = mapped_column(Integer, default=None)
+    price: Mapped[float | None] = mapped_column(Float, default=0.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
     creator: Mapped[str | None] = mapped_column(String(100), default=None)
     editor: Mapped[str | None] = mapped_column(String(100), default=None)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
 
-    courier: Mapped[Courier] = relationship("Courier", back_populates="shipping_addresses", init=False)
+    courier: Mapped["Courier"] = relationship("Courier", back_populates="shipping_addresses", init=False)

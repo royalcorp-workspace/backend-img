@@ -3,6 +3,7 @@ import logging
 from asyncio import Event
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -340,8 +341,70 @@ def create_application(
             )
             if "tags" in schema:
                 schema["tags"] = sorted(schema["tags"], key=lambda t: t.get("name", "").lower())
+            schema.setdefault("components", {})
+            schema["components"]["securitySchemes"] = {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                }
+            }
+            schema["security"] = [{"BearerAuth": []}]
             return schema
 
         application.include_router(docs_router)
+
+        _original_openapi = application.openapi
+
+        def _custom_openapi() -> dict[str, Any]:
+            schema = get_openapi(
+                title=metadata.get("title", "API"),
+                version=metadata.get("version", "0.1.0"),
+                description=metadata.get("description", ""),
+                routes=application.routes,
+            )
+            if "tags" in schema:
+                schema["tags"] = sorted(schema["tags"], key=lambda t: t.get("name", "").lower())
+            schema.setdefault("components", {})
+            schema["components"]["securitySchemes"] = {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                }
+            }
+            schema["security"] = [{"BearerAuth": []}]
+            application.openapi_schema = schema
+            return schema
+
+        application.openapi = _custom_openapi
+
+        _dark_docs_router = APIRouter()
+        _dark_docs_css_path = (
+            Path(__file__).resolve().parent.parent / "templates" / "darkdocs" / "dark.css"
+        )
+        _dark_docs_css_content = (
+            _dark_docs_css_path.read_text(encoding="utf-8")
+            if _dark_docs_css_path.is_file()
+            else ""
+        )
+        _dark_docs_css_inline = f"<style>{_dark_docs_css_content}</style>"
+
+        @_dark_docs_router.get("/darkdocs", include_in_schema=False)
+        async def get_dark_swagger_documentation() -> fastapi.responses.HTMLResponse:
+            html = get_swagger_ui_html(
+                openapi_url="/openapi.json",
+                title="docs (dark mode)",
+                swagger_ui_parameters={"tagsSorter": "alpha", "operationsSorter": "alpha"},
+            )
+            body = html.body.decode("utf-8")
+            if _dark_docs_css_inline:
+                body = body.replace(
+                    "</head>",
+                    f"{_dark_docs_css_inline}</head>",
+                )
+            return fastapi.responses.HTMLResponse(content=body)
+
+        application.include_router(_dark_docs_router)
 
     return application

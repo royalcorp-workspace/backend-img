@@ -1,6 +1,8 @@
+import uuid as uuid_pkg
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
@@ -20,7 +22,7 @@ class Review(Base, TimestampMixin, SoftDeleteMixin):
         primary_key=True,
         init=False,
     )
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    product_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
     order_id: Mapped[int | None] = mapped_column(Integer, default=None)
     user_name: Mapped[str | None] = mapped_column(String(100), default=None)
     user_email: Mapped[str | None] = mapped_column(String(100), default=None)

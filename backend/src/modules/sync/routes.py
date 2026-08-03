@@ -27,6 +27,7 @@ settings = get_settings()
 
 @router.post(
     "/item-branch",
+    openapi_extra={"security": []},
     summary="Webhook Sync Item Branch",
     description="""
     Menerima payload JSON untuk sinkronisasi Item Branch (store_group, store, channel_group, channel) secara async (background task) atau sync.
@@ -146,6 +147,7 @@ async def webhook_sync_item_branch(
 
 @router.post(
     "/base-price",
+    openapi_extra={"security": []},
     summary="Webhook Sync Base Price",
     description="""
     Menerima payload JSON untuk sinkronisasi Base Price secara async (background task) atau sync.
@@ -265,6 +267,7 @@ async def webhook_sync_base_price(
 
 @router.post(
     "/customer-master",
+    openapi_extra={"security": []},
     summary="Webhook Sync Customer Master",
     description="""
     Menerima payload JSON untuk sinkronisasi Customer Master secara async (background task) atau sync.

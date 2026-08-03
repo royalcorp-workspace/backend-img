@@ -66,6 +66,7 @@ class ProductRead(ProductBase):
     reviews: list[dict[str, Any]] = []
     avg_rating: float = 0.0
     total_reviews: int = 0
+    final_price: float = 0.0
 
 
 class ProductImageBase(BaseModel):
@@ -115,6 +116,7 @@ class ProductVariantCreate(ProductVariantBase):
 class ProductVariantRead(ProductVariantBase):
     id: UUID
     price_product_settings: list[dict[str, Any]] = []
+    final_price: float = 0.0
 
 
 class ProductColorBase(BaseModel):

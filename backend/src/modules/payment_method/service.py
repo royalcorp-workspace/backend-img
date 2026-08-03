@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,7 @@ class PaymentMethodService:
             db=db, offset=skip, limit=limit, schema_to_select=PaymentMethodRead, **filters
         )
 
-    async def get_by_id(self, db: AsyncSession, method_id: int) -> dict[str, Any]:
+    async def get_by_id(self, db: AsyncSession, method_id: UUID) -> dict[str, Any]:
         method = await crud_payment_methods.get(db=db, id=method_id, is_deleted=False)
         if not method:
             raise ResourceNotFoundError(f"Payment method with ID {method_id} not found")
@@ -30,7 +31,7 @@ class PaymentMethodService:
         await db.commit()
         return res
 
-    async def update(self, db: AsyncSession, method_id: int, method_in: PaymentMethodUpdate) -> dict[str, Any]:
+    async def update(self, db: AsyncSession, method_id: UUID, method_in: PaymentMethodUpdate) -> dict[str, Any]:
         method = await crud_payment_methods.get(db=db, id=method_id, is_deleted=False)
         if not method:
             raise ResourceNotFoundError(f"Payment method with ID {method_id} not found")
@@ -42,7 +43,7 @@ class PaymentMethodService:
         await db.commit()
         return res
 
-    async def delete(self, db: AsyncSession, method_id: int) -> None:
+    async def delete(self, db: AsyncSession, method_id: UUID) -> None:
         method = await crud_payment_methods.get(db=db, id=method_id, is_deleted=False)
         if not method:
             raise ResourceNotFoundError(f"Payment method with ID {method_id} not found")

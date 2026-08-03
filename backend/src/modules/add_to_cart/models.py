@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from ..product.models import Product, ProductVariant
 
 
-class Order(Base, TimestampMixin):
-    __tablename__ = "orders"
+class AddToCart(Base, TimestampMixin):
+    __tablename__ = "add_to_carts"
 
     id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -22,32 +22,36 @@ class Order(Base, TimestampMixin):
         default=uuid_pkg.uuid4,
         init=False,
     )
-    customer_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=False)
-    status: Mapped[int] = mapped_column(Integer, default=0)
-    payment_method: Mapped[str | None] = mapped_column(String(50), default=None)
-    payment_status: Mapped[int | None] = mapped_column(Integer, default=None)
+    customer_id: Mapped[uuid_pkg.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id"),
+        nullable=True,
+        default=None,
+    )
+    session_id: Mapped[str | None] = mapped_column(String(100), default=None)
+    customer_name: Mapped[str | None] = mapped_column(String(255), default=None)
+    customer_email: Mapped[str | None] = mapped_column(String(255), default=None)
+    customer_phone: Mapped[str | None] = mapped_column(String(50), default=None)
     subtotal: Mapped[float | None] = mapped_column(default=0.0)
     tax: Mapped[float | None] = mapped_column(default=0.0)
     discount: Mapped[float | None] = mapped_column(default=0.0)
     total: Mapped[float | None] = mapped_column(default=0.0)
-    notes: Mapped[str | None] = mapped_column(Text, default=None)
     meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
-    creator: Mapped[str | None] = mapped_column(String(100), default=None)
-    editor: Mapped[str | None] = mapped_column(String(100), default=None)
-    deleted: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
+    creator: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
+    editor: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
 
-    customer: Mapped["Customer"] = relationship("Customer", lazy="selectin", init=False)
-    items: Mapped[list["OrderItem"]] = relationship(
-        "OrderItem",
-        back_populates="order",
+    customer: Mapped["Customer | None"] = relationship("Customer", lazy="selectin", init=False)
+    items: Mapped[list["AddToCartItem"]] = relationship(
+        "AddToCartItem",
+        back_populates="add_to_cart",
         lazy="selectin",
         cascade="all, delete-orphan",
         init=False,
     )
 
 
-class OrderItem(Base, TimestampMixin):
-    __tablename__ = "order_items"
+class AddToCartItem(Base, TimestampMixin):
+    __tablename__ = "add_to_cart_items"
 
     id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -55,9 +59,9 @@ class OrderItem(Base, TimestampMixin):
         default=uuid_pkg.uuid4,
         init=False,
     )
-    order_id: Mapped[uuid_pkg.UUID] = mapped_column(
+    add_to_cart_id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("orders.id", ondelete="CASCADE"),
+        ForeignKey("add_to_carts.id", ondelete="CASCADE"),
         nullable=False,
     )
     product_id: Mapped[uuid_pkg.UUID] = mapped_column(
@@ -71,17 +75,15 @@ class OrderItem(Base, TimestampMixin):
         nullable=True,
         default=None,
     )
-    product_color_id: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, default=None)
+    name: Mapped[str | None] = mapped_column(String(255), default=None)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     unit_price: Mapped[float | None] = mapped_column(default=0.0)
+    total: Mapped[float | None] = mapped_column(default=0.0)
     discount_nominal: Mapped[float | None] = mapped_column(default=0.0)
     discount_percent: Mapped[float | None] = mapped_column(default=0.0)
-    total: Mapped[float | None] = mapped_column(default=0.0)
-    weight: Mapped[int | None] = mapped_column(Integer, default=0)
-    name: Mapped[str | None] = mapped_column(String(255), default=None)
     item_notes: Mapped[str | None] = mapped_column(Text, default=None)
     meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
 
-    order: Mapped["Order"] = relationship("Order", back_populates="items", lazy="selectin", init=False)
+    add_to_cart: Mapped["AddToCart"] = relationship("AddToCart", back_populates="items", lazy="selectin", init=False)
     product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
     variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False, default=None)
