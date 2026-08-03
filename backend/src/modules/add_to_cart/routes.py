@@ -7,12 +7,12 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.auth.dependencies import get_current_user
 from ...modules.rbac.dependencies import require_permission
-from .dependencies import BufferServiceDep
-from .schemas import BufferCheckout, BufferCreate, BufferItemCreate, BufferItemRead, BufferRead, BufferUpdate
+from .dependencies import AddToCartServiceDep
+from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartItemRead, AddToCartRead, AddToCartUpdate
 
-router = APIRouter(tags=["Buffers"])
+router = APIRouter(tags=["Add to Cart"])
 
-BUFFER_EXAMPLE = {
+ADD_TO_CART_EXAMPLE = {
     "id": "12345678-1234-1234-1234-123456789012",
     "customer_id": "12345678-1234-1234-1234-123456789013",
     "session_id": "abc123",
@@ -41,7 +41,7 @@ BUFFER_EXAMPLE = {
     "items": [
         {
             "id": "12345678-1234-1234-1234-123456789015",
-            "buffer_id": "12345678-1234-1234-1234-123456789012",
+            "add_to_cart_id": "12345678-1234-1234-1234-123456789012",
             "product_id": "12345678-1234-1234-1234-123456789016",
             "product_variant_id": None,
             "name": "Product Name",
@@ -68,8 +68,8 @@ BUFFER_EXAMPLE = {
 
 @router.get(
     "/",
-    response_model=PaginatedListResponse[BufferRead],
-    summary="List Buffers",
+    response_model=PaginatedListResponse[AddToCartRead],
+    summary="List Add to Cart",
     description="Get a list of buffers.",
     responses={
         200: {
@@ -77,7 +77,7 @@ BUFFER_EXAMPLE = {
             "content": {
                 "application/json": {
                     "example": {
-                        "data": [BUFFER_EXAMPLE],
+                        "data": [ADD_TO_CART_EXAMPLE],
                         "total_count": 1,
                         "has_more": False,
                         "page": 1,
@@ -96,26 +96,26 @@ BUFFER_EXAMPLE = {
         },
     },
 )
-async def list_buffers(
+async def list_add_to_carts(
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:read"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:read"))],
+    add_to_cart_service: AddToCartServiceDep,
     page: int = 1,
     items_per_page: int = 10,
 ) -> dict[str, Any]:
-    data = await buffer_service.get_paginated(db=db, skip=compute_offset(page, items_per_page), limit=items_per_page)
+    data = await add_to_cart_service.get_paginated(db=db, skip=compute_offset(page, items_per_page), limit=items_per_page)
     return paginated_response(crud_data=data, page=page, items_per_page=items_per_page)
 
 
 @router.get(
-    "/{buffer_id}",
-    response_model=BufferRead,
-    summary="Get Buffer",
-    description="Get a single buffer by ID.",
+    "/{add_to_cart_id}",
+    response_model=AddToCartRead,
+    summary="Get AddToCart",
+    description="Get a single add_to_cart by ID.",
     responses={
         200: {
-            "description": "The requested buffer",
-            "content": {"application/json": {"example": BUFFER_EXAMPLE}},
+            "description": "The requested add_to_cart",
+            "content": {"application/json": {"example": ADD_TO_CART_EXAMPLE}},
         },
         401: {
             "description": "Not authenticated",
@@ -126,30 +126,30 @@ async def list_buffers(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer not found",
-            "content": {"application/json": {"example": {"detail": "Buffer not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart not found",
+            "content": {"application/json": {"example": {"detail": "AddToCart not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def get_buffer(
-    buffer_id: UUID,
+async def get_add_to_cart(
+    add_to_cart_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:read"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:read"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
-    return await buffer_service.get_by_id(db, buffer_id)
+    return await add_to_cart_service.get_by_id(db, add_to_cart_id)
 
 
 @router.post(
     "/",
-    response_model=BufferRead,
+    response_model=AddToCartRead,
     status_code=201,
-    summary="Create Buffer",
-    description="Create a new buffer.",
+    summary="Create AddToCart",
+    description="Create a new add_to_cart.",
     responses={
         201: {
-            "description": "Buffer created",
-            "content": {"application/json": {"example": BUFFER_EXAMPLE}},
+            "description": "AddToCart created",
+            "content": {"application/json": {"example": ADD_TO_CART_EXAMPLE}},
         },
         400: {
             "description": "Invalid data",
@@ -165,24 +165,24 @@ async def get_buffer(
         },
     },
 )
-async def create_buffer(
-    buffer_in: BufferCreate,
+async def create_add_to_cart(
+    buffer_in: AddToCartCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:create"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:create"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
-    return await buffer_service.create(db, buffer_in)
+    return await add_to_cart_service.create(db, buffer_in)
 
 
 @router.put(
-    "/{buffer_id}",
-    response_model=BufferRead,
-    summary="Update Buffer",
-    description="Update an existing buffer.",
+    "/{add_to_cart_id}",
+    response_model=AddToCartRead,
+    summary="Update AddToCart",
+    description="Update an existing add_to_cart.",
     responses={
         200: {
-            "description": "Buffer updated",
-            "content": {"application/json": {"example": BUFFER_EXAMPLE}},
+            "description": "AddToCart updated",
+            "content": {"application/json": {"example": ADD_TO_CART_EXAMPLE}},
         },
         400: {
             "description": "Invalid data",
@@ -197,28 +197,28 @@ async def create_buffer(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer not found",
-            "content": {"application/json": {"example": {"detail": "Buffer not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart not found",
+            "content": {"application/json": {"example": {"detail": "AddToCart not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def update_buffer(
-    buffer_id: UUID,
-    buffer_in: BufferUpdate,
+async def update_add_to_cart(
+    add_to_cart_id: UUID,
+    buffer_in: AddToCartUpdate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:update"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
-    return await buffer_service.update(db, buffer_id, buffer_in)
+    return await add_to_cart_service.update(db, add_to_cart_id, buffer_in)
 
 
 @router.delete(
-    "/{buffer_id}",
+    "/{add_to_cart_id}",
     status_code=204,
-    summary="Delete Buffer",
-    description="Remove a buffer.",
+    summary="Delete AddToCart",
+    description="Remove a add_to_cart.",
     responses={
-        204: {"description": "Buffer deleted"},
+        204: {"description": "AddToCart deleted"},
         401: {
             "description": "Not authenticated",
             "content": {"application/json": {"example": {"detail": "Not authenticated", "support_id": "a1b2c3d4"}}},
@@ -228,30 +228,30 @@ async def update_buffer(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer not found",
-            "content": {"application/json": {"example": {"detail": "Buffer not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart not found",
+            "content": {"application/json": {"example": {"detail": "AddToCart not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def delete_buffer(
-    buffer_id: UUID,
+async def delete_add_to_cart(
+    add_to_cart_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:delete"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:delete"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> None:
-    await buffer_service.delete(db, buffer_id)
+    await add_to_cart_service.delete(db, add_to_cart_id)
 
 
 @router.post(
-    "/{buffer_id}/items",
-    response_model=BufferItemRead,
+    "/{add_to_cart_id}/items",
+    response_model=AddToCartItemRead,
     status_code=201,
-    summary="Add Buffer Item",
-    description="Add an item to a buffer.",
+    summary="Add AddToCart Item",
+    description="Add an item to a add_to_cart.",
     responses={
         201: {
-            "description": "Buffer item created",
-            "content": {"application/json": {"example": BUFFER_EXAMPLE["items"][0]}},
+            "description": "AddToCart item created",
+            "content": {"application/json": {"example": ADD_TO_CART_EXAMPLE["items"][0]}},
         },
         400: {
             "description": "Invalid data",
@@ -266,30 +266,30 @@ async def delete_buffer(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer not found",
-            "content": {"application/json": {"example": {"detail": "Buffer not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart not found",
+            "content": {"application/json": {"example": {"detail": "AddToCart not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def add_buffer_item(
-    buffer_id: UUID,
-    item_in: BufferItemCreate,
+async def add_add_to_cart_item(
+    add_to_cart_id: UUID,
+    item_in: AddToCartItemCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:update"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
-    return await buffer_service.add_item(db, buffer_id, item_in)
+    return await add_to_cart_service.add_item(db, add_to_cart_id, item_in)
 
 
 @router.put(
-    "/{buffer_id}/items/{item_id}",
-    response_model=BufferItemRead,
-    summary="Update Buffer Item",
-    description="Update an item in a buffer.",
+    "/{add_to_cart_id}/items/{item_id}",
+    response_model=AddToCartItemRead,
+    summary="Update AddToCart Item",
+    description="Update an item in a add_to_cart.",
     responses={
         200: {
-            "description": "Buffer item updated",
-            "content": {"application/json": {"example": BUFFER_EXAMPLE["items"][0]}},
+            "description": "AddToCart item updated",
+            "content": {"application/json": {"example": ADD_TO_CART_EXAMPLE["items"][0]}},
         },
         400: {
             "description": "Invalid data",
@@ -304,29 +304,29 @@ async def add_buffer_item(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer or item not found",
-            "content": {"application/json": {"example": {"detail": "Buffer item not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart or item not found",
+            "content": {"application/json": {"example": {"detail": "AddToCart item not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def update_buffer_item(
-    buffer_id: UUID,
+async def update_add_to_cart_item(
+    add_to_cart_id: UUID,
     item_id: UUID,
-    item_in: BufferItemCreate,
+    item_in: AddToCartItemCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:update"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
-    return await buffer_service.update_item(db, buffer_id, item_id, item_in)
+    return await add_to_cart_service.update_item(db, add_to_cart_id, item_id, item_in)
 
 
 @router.delete(
-    "/{buffer_id}/items/{item_id}",
+    "/{add_to_cart_id}/items/{item_id}",
     status_code=204,
-    summary="Delete Buffer Item",
-    description="Remove an item from a buffer.",
+    summary="Delete AddToCart Item",
+    description="Remove an item from a add_to_cart.",
     responses={
-        204: {"description": "Buffer item deleted"},
+        204: {"description": "AddToCart item deleted"},
         401: {
             "description": "Not authenticated",
             "content": {"application/json": {"example": {"detail": "Not authenticated", "support_id": "a1b2c3d4"}}},
@@ -336,30 +336,30 @@ async def update_buffer_item(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer or item not found",
-            "content": {"application/json": {"example": {"detail": "Buffer item not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart or item not found",
+            "content": {"application/json": {"example": {"detail": "AddToCart item not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def delete_buffer_item(
-    buffer_id: UUID,
+async def delete_add_to_cart_item(
+    add_to_cart_id: UUID,
     item_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:update"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    add_to_cart_service: AddToCartServiceDep,
 ) -> None:
-    await buffer_service.delete_item(db, buffer_id, item_id)
+    await add_to_cart_service.delete_item(db, add_to_cart_id, item_id)
 
 
 @router.post(
-    "/{buffer_id}/checkout",
+    "/{add_to_cart_id}/checkout",
     response_model=dict[str, Any],
-    summary="Checkout Buffer",
-    description="Convert buffer to an order and hard-delete the buffer.",
+    summary="Checkout AddToCart",
+    description="Convert add_to_cart to an order and hard-delete the add_to_cart.",
     responses={
         200: {
-            "description": "Order created from buffer",
-            "content": {"application/json": {"example": BUFFER_EXAMPLE}},
+            "description": "Order created from add_to_cart",
+            "content": {"application/json": {"example": ADD_TO_CART_EXAMPLE}},
         },
         400: {
             "description": "Invalid data",
@@ -374,18 +374,18 @@ async def delete_buffer_item(
             "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
         },
         404: {
-            "description": "Buffer not found or empty",
-            "content": {"application/json": {"example": {"detail": "Buffer not found", "support_id": "a1b2c3d4"}}},
+            "description": "AddToCart not found or empty",
+            "content": {"application/json": {"example": {"detail": "AddToCart not found", "support_id": "a1b2c3d4"}}},
         },
     },
 )
-async def checkout_buffer(
-    buffer_id: UUID,
-    checkout_in: BufferCheckout,
+async def checkout_add_to_cart(
+    add_to_cart_id: UUID,
+    checkout_in: AddToCartCheckout,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("buffers:create"))],
-    buffer_service: BufferServiceDep,
+    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:create"))],
+    add_to_cart_service: AddToCartServiceDep,
     current_user: Annotated[dict[str, Any], Depends(get_current_user)],
 ) -> dict[str, Any]:
     creator_id = current_user.get("id") or current_user.get("sub")
-    return await buffer_service.checkout(db, buffer_id, checkout_in, creator_id)
+    return await add_to_cart_service.checkout(db, add_to_cart_id, checkout_in, creator_id)

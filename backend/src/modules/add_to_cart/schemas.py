@@ -8,7 +8,7 @@ from ..customer.schemas import CustomerRead
 from ..product.schemas import ProductRead, ProductVariantRead
 
 
-class BufferItemBase(BaseModel):
+class AddToCartItemBase(BaseModel):
     product_id: UUID
     product_variant_id: UUID | None = None
     name: str | None = None
@@ -21,18 +21,18 @@ class BufferItemBase(BaseModel):
     meta: dict[str, Any] | None = None
 
 
-class BufferItemCreate(BufferItemBase):
+class AddToCartItemCreate(AddToCartItemBase):
     pass
 
 
-class BufferItemRead(BufferItemBase, TimestampSchema):
+class AddToCartItemRead(AddToCartItemBase, TimestampSchema):
     id: UUID
-    buffer_id: UUID
+    add_to_cart_id: UUID
     product: ProductRead | None = None
     variant: ProductVariantRead | None = None
 
 
-class BufferBase(BaseModel):
+class AddToCartBase(BaseModel):
     customer_id: UUID | None = None
     session_id: str | None = None
     customer_name: str | None = None
@@ -45,15 +45,15 @@ class BufferBase(BaseModel):
     meta: dict[str, Any] | None = None
 
 
-class Buffer(BufferBase, TimestampSchema):
+class AddToCart(AddToCartBase, TimestampSchema):
     id: UUID
 
 
-class BufferCreate(BufferBase):
+class AddToCartCreate(AddToCartBase):
     pass
 
 
-class BufferUpdate(BaseModel):
+class AddToCartUpdate(BaseModel):
     customer_id: UUID | None = None
     session_id: str | None = None
     customer_name: str | None = None
@@ -66,13 +66,13 @@ class BufferUpdate(BaseModel):
     meta: dict[str, Any] | None = None
 
 
-class BufferRead(BufferBase, TimestampSchema):
+class AddToCartRead(AddToCartBase, TimestampSchema):
     id: UUID
     customer: CustomerRead | None = None
-    items: list[BufferItemRead] = []
+    items: list[AddToCartItemRead] = []
 
 
-class BufferCheckout(BaseModel):
+class AddToCartCheckout(BaseModel):
     payment_method: str | None = None
     payment_status: int | None = None
     notes: str | None = None

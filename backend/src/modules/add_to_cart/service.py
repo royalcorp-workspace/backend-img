@@ -10,44 +10,44 @@ from ..common.exceptions import ResourceNotFoundError
 from ..customer.models import Customer
 from ..order.models import Order, OrderItem
 from ..product.models import Product, ProductVariant
-from .crud import crud_buffer_items, crud_buffers
-from .models import Buffer, BufferItem
-from .schemas import BufferCheckout, BufferCreate, BufferItemCreate, BufferUpdate
+from .crud import crud_add_to_cart_items, crud_add_to_carts
+from .models import AddToCart, AddToCartItem
+from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartUpdate
 
 logger = get_logger()
 
 
-def _buffer_to_dict(buffer: Buffer) -> dict[str, Any]:
+def _add_to_cart_to_dict(add_to_cart: AddToCart) -> dict[str, Any]:
     return {
-        "id": buffer.id,
-        "customer_id": buffer.customer_id,
-        "session_id": buffer.session_id,
-        "customer_name": buffer.customer_name,
-        "customer_email": buffer.customer_email,
-        "customer_phone": buffer.customer_phone,
-        "subtotal": buffer.subtotal,
-        "tax": buffer.tax,
-        "discount": buffer.discount,
-        "total": buffer.total,
-        "meta": buffer.meta,
-        "creator": buffer.creator,
-        "editor": buffer.editor,
-        "created_at": buffer.created_at,
-        "updated_at": buffer.updated_at,
+        "id": add_to_cart.id,
+        "customer_id": add_to_cart.customer_id,
+        "session_id": add_to_cart.session_id,
+        "customer_name": add_to_cart.customer_name,
+        "customer_email": add_to_cart.customer_email,
+        "customer_phone": add_to_cart.customer_phone,
+        "subtotal": add_to_cart.subtotal,
+        "tax": add_to_cart.tax,
+        "discount": add_to_cart.discount,
+        "total": add_to_cart.total,
+        "meta": add_to_cart.meta,
+        "creator": add_to_cart.creator,
+        "editor": add_to_cart.editor,
+        "created_at": add_to_cart.created_at,
+        "updated_at": add_to_cart.updated_at,
         "customer": {
-            "id": buffer.customer.id,
-            "name": buffer.customer.name,
-            "email": buffer.customer.email,
-            "phone": buffer.customer.phone,
-            "user_id": buffer.customer.user_id,
-            "created_at": buffer.customer.created_at,
-            "updated_at": buffer.customer.updated_at,
-            "deleted": buffer.customer.deleted,
-        } if buffer.customer else None,
+            "id": add_to_cart.customer.id,
+            "name": add_to_cart.customer.name,
+            "email": add_to_cart.customer.email,
+            "phone": add_to_cart.customer.phone,
+            "user_id": add_to_cart.customer.user_id,
+            "created_at": add_to_cart.customer.created_at,
+            "updated_at": add_to_cart.customer.updated_at,
+            "deleted": add_to_cart.customer.deleted,
+        } if add_to_cart.customer else None,
         "items": [
             {
                 "id": item.id,
-                "buffer_id": item.buffer_id,
+                "add_to_cart_id": item.add_to_cart_id,
                 "product_id": item.product_id,
                 "product_variant_id": item.product_variant_id,
                 "name": item.name,
@@ -74,42 +74,42 @@ def _buffer_to_dict(buffer: Buffer) -> dict[str, Any]:
                     "sku": item.variant.sku,
                 } if item.variant else None,
             }
-            for item in (buffer.items or [])
+            for item in (add_to_cart.items or [])
         ],
     }
 
 
-def _recalculate_buffer_totals(buffer: Buffer) -> None:
-    subtotal = sum((item.unit_price or 0.0) * (item.quantity or 0) for item in (buffer.items or []))
+def _recalculate_add_to_cart_totals(add_to_cart: AddToCart) -> None:
+    subtotal = sum((item.unit_price or 0.0) * (item.quantity or 0) for item in (add_to_cart.items or []))
     discount = sum(
         (item.discount_nominal or 0.0)
         + ((item.unit_price or 0.0) * (item.quantity or 0) * (item.discount_percent or 0.0) / 100)
-        for item in (buffer.items or [])
+        for item in (add_to_cart.items or [])
     )
-    buffer.subtotal = subtotal
-    buffer.discount = discount
-    buffer.tax = 0.0
-    buffer.total = subtotal - discount + buffer.tax
+    add_to_cart.subtotal = subtotal
+    add_to_cart.discount = discount
+    add_to_cart.tax = 0.0
+    add_to_cart.total = subtotal - discount + add_to_cart.tax
 
 
-class BufferService:
+class AddToCartService:
     async def get_paginated(self, db: AsyncSession, skip: int = 0, limit: int = 100, **filters) -> dict[str, Any]:
         query = (
-            select(Buffer)
+            select(AddToCart)
             .options(
-                selectinload(Buffer.customer),
-                selectinload(Buffer.items).selectinload(BufferItem.product),
-                selectinload(Buffer.items).selectinload(BufferItem.variant),
+                selectinload(AddToCart.customer),
+                selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+                selectinload(AddToCart.items).selectinload(AddToCartItem.variant),
             )
             .offset(skip)
             .limit(limit)
         )
-        count_query = select(func.count()).select_from(Buffer)
+        count_query = select(func.count()).select_from(AddToCart)
 
         for key, value in filters.items():
-            if hasattr(Buffer, key):
-                query = query.where(getattr(Buffer, key) == value)
-                count_query = count_query.where(getattr(Buffer, key) == value)
+            if hasattr(AddToCart, key):
+                query = query.where(getattr(AddToCart, key) == value)
+                count_query = count_query.where(getattr(AddToCart, key) == value)
 
         result = await db.execute(query)
         buffers = result.scalars().all()
@@ -117,78 +117,78 @@ class BufferService:
         total = total_result.scalar()
 
         return {
-            "data": [_buffer_to_dict(b) for b in buffers],
+            "data": [_add_to_cart_to_dict(b) for b in buffers],
             "total_count": total,
             "has_more": (skip + len(buffers)) < total,
         }
 
-    async def get_by_id(self, db: AsyncSession, buffer_id: UUID) -> dict[str, Any]:
+    async def get_by_id(self, db: AsyncSession, add_to_cart_id: UUID) -> dict[str, Any]:
         query = (
-            select(Buffer)
+            select(AddToCart)
             .options(
-                selectinload(Buffer.customer),
-                selectinload(Buffer.items).selectinload(BufferItem.product),
-                selectinload(Buffer.items).selectinload(BufferItem.variant),
+                selectinload(AddToCart.customer),
+                selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+                selectinload(AddToCart.items).selectinload(AddToCartItem.variant),
             )
-            .where(Buffer.id == buffer_id)
+            .where(AddToCart.id == add_to_cart_id)
         )
         result = await db.execute(query)
-        buffer = result.scalar_one_or_none()
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
-        return _buffer_to_dict(buffer)
+        add_to_cart = result.scalar_one_or_none()
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
+        return _add_to_cart_to_dict(add_to_cart)
 
-    async def create(self, db: AsyncSession, buffer_in: BufferCreate) -> dict[str, Any]:
+    async def create(self, db: AsyncSession, buffer_in: AddToCartCreate) -> dict[str, Any]:
         buffer_data = buffer_in.model_dump()
-        buffer = Buffer(**buffer_data)
-        db.add(buffer)
+        add_to_cart = AddToCart(**buffer_data)
+        db.add(add_to_cart)
         await db.commit()
-        return await self.get_by_id(db, buffer.id)
+        return await self.get_by_id(db, add_to_cart.id)
 
-    async def update(self, db: AsyncSession, buffer_id: UUID, buffer_in: BufferUpdate) -> dict[str, Any]:
-        buffer = await crud_buffers.get(db=db, id=buffer_id)
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
+    async def update(self, db: AsyncSession, add_to_cart_id: UUID, buffer_in: AddToCartUpdate) -> dict[str, Any]:
+        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
         update_data = buffer_in.model_dump(exclude_unset=True)
-        await crud_buffers.update(db=db, db_obj=buffer, obj_in=update_data)
+        await crud_add_to_carts.update(db=db, db_obj=add_to_cart, obj_in=update_data)
         await db.commit()
-        return await self.get_by_id(db, buffer_id)
+        return await self.get_by_id(db, add_to_cart_id)
 
-    async def delete(self, db: AsyncSession, buffer_id: UUID) -> None:
-        buffer = await crud_buffers.get(db=db, id=buffer_id)
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
-        await db.delete(buffer)
+    async def delete(self, db: AsyncSession, add_to_cart_id: UUID) -> None:
+        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
+        await db.delete(add_to_cart)
         await db.commit()
 
-    async def add_item(self, db: AsyncSession, buffer_id: UUID, item_in: BufferItemCreate) -> dict[str, Any]:
-        buffer = await crud_buffers.get(db=db, id=buffer_id)
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
+    async def add_item(self, db: AsyncSession, add_to_cart_id: UUID, item_in: AddToCartItemCreate) -> dict[str, Any]:
+        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
         item_data = item_in.model_dump()
-        item_data["buffer_id"] = buffer_id
-        item = BufferItem(**item_data)
+        item_data["add_to_cart_id"] = add_to_cart_id
+        item = AddToCartItem(**item_data)
         db.add(item)
         await db.flush()
 
-        await db.refresh(buffer)
-        _recalculate_buffer_totals(buffer)
+        await db.refresh(add_to_cart)
+        _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
-        await db.refresh(buffer)
+        await db.refresh(add_to_cart)
 
         query = (
-            select(BufferItem)
-            .options(selectinload(BufferItem.product), selectinload(BufferItem.variant))
-            .where(BufferItem.id == item.id)
+            select(AddToCartItem)
+            .options(selectinload(AddToCartItem.product), selectinload(AddToCartItem.variant))
+            .where(AddToCartItem.id == item.id)
         )
         result = await db.execute(query)
         new_item = result.scalar_one()
 
         return {
             "id": new_item.id,
-            "buffer_id": new_item.buffer_id,
+            "add_to_cart_id": new_item.add_to_cart_id,
             "product_id": new_item.product_id,
             "product_variant_id": new_item.product_variant_id,
             "name": new_item.name,
@@ -216,35 +216,35 @@ class BufferService:
             } if new_item.variant else None,
         }
 
-    async def update_item(self, db: AsyncSession, buffer_id: UUID, item_id: UUID, item_in: BufferItemCreate) -> dict[str, Any]:
-        buffer = await crud_buffers.get(db=db, id=buffer_id)
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
+    async def update_item(self, db: AsyncSession, add_to_cart_id: UUID, item_id: UUID, item_in: AddToCartItemCreate) -> dict[str, Any]:
+        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
-        item = await crud_buffer_items.get(db=db, id=item_id)
-        if not item or item.buffer_id != buffer_id:
-            raise ResourceNotFoundError(f"Buffer item with ID {item_id} not found in buffer {buffer_id}")
+        item = await crud_add_to_cart_items.get(db=db, id=item_id)
+        if not item or item.add_to_cart_id != add_to_cart_id:
+            raise ResourceNotFoundError(f"AddToCart item with ID {item_id} not found in add_to_cart {add_to_cart_id}")
 
         update_data = item_in.model_dump(exclude_unset=True)
-        await crud_buffer_items.update(db=db, db_obj=item, obj_in=update_data)
+        await crud_add_to_cart_items.update(db=db, db_obj=item, obj_in=update_data)
         await db.flush()
 
-        await db.refresh(buffer)
-        _recalculate_buffer_totals(buffer)
+        await db.refresh(add_to_cart)
+        _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
-        await db.refresh(buffer)
+        await db.refresh(add_to_cart)
 
         query = (
-            select(BufferItem)
-            .options(selectinload(BufferItem.product), selectinload(BufferItem.variant))
-            .where(BufferItem.id == item_id)
+            select(AddToCartItem)
+            .options(selectinload(AddToCartItem.product), selectinload(AddToCartItem.variant))
+            .where(AddToCartItem.id == item_id)
         )
         result = await db.execute(query)
         updated_item = result.scalar_one()
 
         return {
             "id": updated_item.id,
-            "buffer_id": updated_item.buffer_id,
+            "add_to_cart_id": updated_item.add_to_cart_id,
             "product_id": updated_item.product_id,
             "product_variant_id": updated_item.product_variant_id,
             "name": updated_item.name,
@@ -272,37 +272,37 @@ class BufferService:
             } if updated_item.variant else None,
         }
 
-    async def delete_item(self, db: AsyncSession, buffer_id: UUID, item_id: UUID) -> None:
-        buffer = await crud_buffers.get(db=db, id=buffer_id)
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
+    async def delete_item(self, db: AsyncSession, add_to_cart_id: UUID, item_id: UUID) -> None:
+        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
-        item = await crud_buffer_items.get(db=db, id=item_id)
-        if not item or item.buffer_id != buffer_id:
-            raise ResourceNotFoundError(f"Buffer item with ID {item_id} not found in buffer {buffer_id}")
+        item = await crud_add_to_cart_items.get(db=db, id=item_id)
+        if not item or item.add_to_cart_id != add_to_cart_id:
+            raise ResourceNotFoundError(f"AddToCart item with ID {item_id} not found in add_to_cart {add_to_cart_id}")
 
         await db.delete(item)
         await db.flush()
 
-        await db.refresh(buffer)
-        _recalculate_buffer_totals(buffer)
+        await db.refresh(add_to_cart)
+        _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
 
-    async def checkout(self, db: AsyncSession, buffer_id: UUID, checkout_in: BufferCheckout, creator_id: UUID | None = None) -> dict[str, Any]:
-        buffer = await crud_buffers.get(db=db, id=buffer_id)
-        if not buffer:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} not found")
+    async def checkout(self, db: AsyncSession, add_to_cart_id: UUID, checkout_in: AddToCartCheckout, creator_id: UUID | None = None) -> dict[str, Any]:
+        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        if not add_to_cart:
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
-        items = buffer.items or []
+        items = add_to_cart.items or []
         if not items:
-            raise ResourceNotFoundError(f"Buffer with ID {buffer_id} is empty")
+            raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} is empty")
 
-        customer = await db.get(Customer, buffer.customer_id) if buffer.customer_id else None
+        customer = await db.get(Customer, add_to_cart.customer_id) if add_to_cart.customer_id else None
         if not customer:
             customer = Customer(
-                name=buffer.customer_name or "Guest",
-                email=buffer.customer_email,
-                phone=buffer.customer_phone,
+                name=add_to_cart.customer_name or "Guest",
+                email=add_to_cart.customer_email,
+                phone=add_to_cart.customer_phone,
                 creator=creator_id,
                 editor=creator_id,
             )
@@ -314,12 +314,12 @@ class BufferService:
             status=Order.STATUS_DRAFT,
             payment_method=checkout_in.payment_method,
             payment_status=checkout_in.payment_status or Order.PAYMENT_UNPAID,
-            subtotal=buffer.subtotal or 0.0,
-            tax=buffer.tax or 0.0,
-            discount=buffer.discount or 0.0,
-            total=buffer.total or 0.0,
+            subtotal=add_to_cart.subtotal or 0.0,
+            tax=add_to_cart.tax or 0.0,
+            discount=add_to_cart.discount or 0.0,
+            total=add_to_cart.total or 0.0,
             notes=checkout_in.notes,
-            meta=checkout_in.meta or buffer.meta,
+            meta=checkout_in.meta or add_to_cart.meta,
             creator=creator_id,
             editor=creator_id,
         )
@@ -342,7 +342,7 @@ class BufferService:
             )
             db.add(order_item)
 
-        await db.delete(buffer)
+        await db.delete(add_to_cart)
         await db.commit()
 
         query = (
@@ -421,4 +421,4 @@ class BufferService:
         }
 
 
-buffer_service = BufferService()
+add_to_cart_service = AddToCartService()

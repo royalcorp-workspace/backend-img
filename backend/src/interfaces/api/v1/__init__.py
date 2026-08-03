@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from ....infrastructure.auth.routes import router as auth_router
 from ....modules.api_keys.routes import router as api_keys_router
-from ....modules.buffer.routes import router as buffers_router
+from ....modules.add_to_cart.routes import router as add_to_cart_router
 from ....modules.category.routes import router as categories_router
 from ....modules.content.routes import router as content_router
 from ....modules.courier.routes import router as couriers_router
@@ -44,4 +44,4 @@ router.include_router(payment_methods_router, prefix="/payment-methods")
 router.include_router(stores_router, prefix="/stores")
 router.include_router(content_router, prefix="/content")
 router.include_router(sync_router, prefix="/sync")
-router.include_router(buffers_router, prefix="/buffers")
+router.include_router(add_to_cart_router, prefix="/add-to-cart")
