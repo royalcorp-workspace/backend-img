@@ -12,6 +12,7 @@ from ...infrastructure.dependencies import (
     AsyncSessionDep,
 )
 from ...infrastructure.logging import get_logger
+from ...infrastructure.auth.dependencies import get_current_user
 from ...modules.rbac.dependencies import require_permission
 from ..common.utils.error_handler import handle_exception
 from ..review.schemas import ProductReviewsRead
@@ -31,6 +32,7 @@ from .schemas import (
     ProductUpdate,
     ProductVariantCreate,
     ProductVariantRead,
+    ProductBundlingRead,
 )
 from .sync import logger as sync_logger
 from .sync import sync_pos_products_task, sync_products_data
@@ -149,7 +151,7 @@ logger = get_logger()
 )
 async def list_products(
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("products:read"))],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
     product_service: ProductServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -203,7 +205,7 @@ async def list_products(
 async def list_product_reviews(
     product_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("products:read"))],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
     product_service: ProductServiceDep,
 ) -> Any:
     product = await product_service.get_by_id(db, product_id)
@@ -451,7 +453,7 @@ async def create_product(
 async def get_product(
     product_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("products:read"))],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
     product_service: ProductServiceDep,
 ) -> dict[str, Any]:
     return await product_service.get_by_id(db, product_id)
@@ -1208,3 +1210,28 @@ async def webhook_sync_products(
                 status_code=500,
                 detail=f"Gagal menjadwalkan sinkronisasi di latar belakang: {str(e)}",
             )
+
+from sqlalchemy import select
+from .models import ProductBundling
+
+@router.get(
+    "/bundlings",
+    response_model=dict,
+    summary="List Active Product Bundlings",
+    description="Get all active product bundlings with their items.",
+)
+async def get_bundlings(db: AsyncSessionDep):
+    try:
+        stmt = select(ProductBundling).where(
+            ProductBundling.deleted == False,
+            ProductBundling.is_active == True
+        )
+        result = await db.execute(stmt)
+        bundlings = result.scalars().all()
+        return {
+            "success": True,
+            "data": bundlings
+        }
+    except Exception as e:
+        logger.error(f"Error fetching bundlings: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch bundlings: {str(e)}")

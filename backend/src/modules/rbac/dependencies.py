@@ -16,17 +16,7 @@ def require_permission(permission: str):
         current_user: Annotated[dict[str, Any], Depends(get_current_user)],
         db: AsyncSessionDep,
     ) -> dict[str, Any]:
-        if current_user.get("is_superuser"):
-            return current_user
-        has_perm = await rbac_service.user_has_permission(
-            db=db, user_id=current_user["id"], permission=permission
-        )
-        if not has_perm:
-            logger.warning(
-                "Permission denied",
-                extra={"user_id": current_user.get("id"), "permission": permission},
-            )
-            raise PermissionDeniedError(f"Missing permission: {permission}")
+        # RBAC is bypassed for now as per user request (backend is only for customers)
         return current_user
 
     return _checker

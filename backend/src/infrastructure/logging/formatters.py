@@ -15,6 +15,7 @@ import json
 import logging
 import traceback
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 
 class SimpleFormatter(logging.Formatter):
@@ -54,7 +55,7 @@ class StructuredFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.now(UTC).isoformat()
+        timestamp = datetime.now(ZoneInfo("Asia/Jakarta")).isoformat()
         parts = [
             f"timestamp={timestamp}",
             f"level={record.levelname}",
@@ -111,7 +112,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_data = {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(ZoneInfo("Asia/Jakarta")).isoformat(),
             "level": record.levelname,
             "module": record.name,
             "message": record.getMessage(),

@@ -245,3 +245,49 @@ class RefProductCategory(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, default=None)
 
+
+class ProductBundling(Base, TimestampMixin):
+    __tablename__ = "products_bundling"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        init=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    price: Mapped[float] = mapped_column(default=0.0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    creator: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
+    editor: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    discount_type: Mapped[str | None] = mapped_column(String(50), default=None)
+    banner: Mapped[str | None] = mapped_column(String(255), default=None)
+    image_url: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    items: Mapped[list["ProductBundlingItem"]] = relationship(
+        "ProductBundlingItem", back_populates="bundling", lazy="selectin", cascade="all, delete-orphan", init=False
+    )
+
+
+class ProductBundlingItem(Base, TimestampMixin):
+    __tablename__ = "products_bundling_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        init=False,
+    )
+    bundling_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products_bundling.id"), nullable=False)
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), nullable=False)
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("product_variants.id"), default=None)
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+
+    bundling: Mapped["ProductBundling"] = relationship("ProductBundling", back_populates="items", init=False)
+    product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
+    variant: Mapped["ProductVariant"] = relationship("ProductVariant", lazy="selectin", init=False)

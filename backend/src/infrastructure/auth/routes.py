@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from ...modules.customer.crud import crud_addresses, crud_customers
 from ...modules.customer.schemas import AddressRead, CustomerRead
+from ...modules.rbac.crud import crud_roles
+from ...modules.rbac.service import rbac_service
 from ...modules.user.crud import crud_users
 from ...modules.user.enums import OAuthProvider
 from ...modules.user.firebase_auth import verify_firebase_id_token
@@ -301,9 +303,25 @@ async def firebase_login(
         user_id = matched["id"]
         username = matched.get("username", "")
     else:
-        username = email.split("@")[0]
+        import re
+        
+        base_username = re.sub(r"[^a-z0-9]", "", email.split("@")[0].lower())
+        if len(base_username) < 2:
+            base_username = base_username.ljust(2, "a")
+            
+        username = base_username[:20]
+        counter = 1
+        while await crud_users.exists(db=db, username=username):
+            suffix = str(counter)
+            username = base_username[:20 - len(suffix)] + suffix
+            counter += 1
+
+        name = (display_name or email)[:30]
+        if len(name) < 2:
+            name = name.ljust(2, "a")
+
         user_in = UserCreateInternal(
-            name=display_name or email,
+            name=name,
             username=username,
             email=email,
             hashed_password="",
@@ -315,6 +333,16 @@ async def firebase_login(
         created = await crud_users.create(db=db, object=user_in)
         user_id = created.get("id") if isinstance(created, dict) else getattr(created, "id")
         username = created.get("username", username) if isinstance(created, dict) else getattr(created, "username", username)
+        
+        from ...modules.customer.schemas import CustomerCreate
+        customer_in = CustomerCreate(
+            name=name[:100],
+            email=email,
+            user_id=user_id,
+        )
+        await crud_customers.create(db=db, object=customer_in)
+
+    # Role assignment is disabled for firebase_login as per user request (RBAC is for user_admin)
 
     session_id, csrf_token = await crud_auth.sessions.create_session(
         request,
@@ -325,17 +353,37 @@ async def firebase_login(
             "firebase_uid": firebase_uid,
             "username": username,
         },
-        expiration_seconds=3600, # Firebase login session expires in 1 hour
+        expiration_seconds=3600,  # Firebase login session expires in 1 hour
     )
     crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 
-    user = await crud_users.get(db=db, id=user_id, is_deleted=False)
+    from sqlalchemy import select
+    from ...modules.user.models import User
+    result = await db.execute(select(User).where(User.id == user_id, User.is_deleted == False))
+    user = result.scalar_one_or_none()
     token_body = _bearer_transport.issue_tokens(user, response=response)
+
+    customer_result = await crud_customers.get_multi(
+        db, schema_to_select=CustomerRead, user_id=user_id, deleted=False
+    )
+    customer = customer_result["data"][0] if customer_result.get("data") else None
+    if customer:
+        address_result = await crud_addresses.get_multi(
+            db, schema_to_select=AddressRead, user_id=user_id, deleted=False
+        )
+        customer["addresses"] = address_result.get("data", []) if address_result else []
 
     return {
         "csrf_token": csrf_token,
         "access_token": token_body["access_token"],
         "token_type": token_body.get("token_type", "bearer"),
+        "user": {
+            "id": user_id,
+            "email": email,
+            "name": display_name or email,
+            "username": username,
+            "customer": customer,
+        },
     }
 
 

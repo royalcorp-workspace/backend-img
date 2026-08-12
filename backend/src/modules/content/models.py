@@ -1,9 +1,10 @@
+import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, UUID, ForeignKey
 from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
@@ -175,3 +176,71 @@ class WarrantyClaim(Base, TimestampMixin, SoftDeleteMixin):
     meta_description: Mapped[str | None] = mapped_column(String(255), default=None)
     creator: Mapped[str | None] = mapped_column(String(100), default=None)
     editor: Mapped[str | None] = mapped_column(String(100), default=None)
+
+
+class Banner(Base, TimestampMixin):
+    __tablename__ = "banners"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, init=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_url: Mapped[str | None] = mapped_column(String(255), default=None)
+    target: Mapped[str] = mapped_column(String(50), default='_self')
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Optional image relation (if we use a separate table, otherwise we can just use JSON or image_url)
+    image_url: Mapped[str | None] = mapped_column(String(255), default=None)
+
+
+class HomepageSection(Base, TimestampMixin):
+    __tablename__ = "homepage_sections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, init=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    section_key: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    content_html: Mapped[str | None] = mapped_column(Text, default=None)
+    meta: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_visible: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Event(Base, TimestampMixin):
+    __tablename__ = "events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, init=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    popups: Mapped[list["EventPopup"]] = relationship("EventPopup", back_populates="event", lazy="selectin", init=False)
+
+
+class EventPopup(Base, TimestampMixin):
+    __tablename__ = "event_popups"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, init=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), default=None)
+    image_url: Mapped[str | None] = mapped_column(String(255), default=None)
+    link_url: Mapped[str | None] = mapped_column(String(255), default=None)
+    button_text: Mapped[str | None] = mapped_column(String(100), default=None)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    event: Mapped["Event"] = relationship("Event", back_populates="popups", init=False)
+
+
+class Notification(Base, TimestampMixin):
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, init=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, default=None)
+    link_url: Mapped[str | None] = mapped_column(String(255), default=None)
+    is_broadcast: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)

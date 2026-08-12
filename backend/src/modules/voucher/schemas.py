@@ -1,7 +1,8 @@
+from uuid import UUID
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..common.schemas import TimestampSchema
 
@@ -12,6 +13,20 @@ class VoucherBase(BaseModel):
     description: str | None = None
     type: Literal["percentage", "fixed", "shipping_discount", "free_gift"] = "percentage"
     scope: Literal["global", "product", "category"] = "global"
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def map_type(cls, v: Any) -> str:
+        if isinstance(v, int):
+            return {1: "fixed", 2: "percentage", 3: "shipping_discount", 4: "free_gift"}.get(v, "percentage")
+        return v
+
+    @field_validator("scope", mode="before")
+    @classmethod
+    def map_scope(cls, v: Any) -> str:
+        if isinstance(v, int):
+            return {1: "global", 2: "product", 3: "category"}.get(v, "global")
+        return v
     allow_stacking: bool = False
     value: float = 0.0
     min_purchase: float | None = 0.0
@@ -26,7 +41,7 @@ class VoucherBase(BaseModel):
 
 
 class Voucher(VoucherBase, TimestampSchema):
-    id: int
+    id: UUID
 
 
 class VoucherCreate(VoucherBase):
@@ -52,4 +67,4 @@ class VoucherUpdate(BaseModel):
 
 
 class VoucherRead(VoucherBase):
-    id: int
+    id: UUID

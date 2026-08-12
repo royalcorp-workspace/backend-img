@@ -33,6 +33,7 @@ dependencies = [
     "taskiq-aio-pika>=0.4.3",
     "user-agents>=2.2.0",
     "cryptography>=49.0.0",
+    "pusher>=3.3.0",
 ]
 
 [project.optional-dependencies]
