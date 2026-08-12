@@ -70,23 +70,37 @@ def verify_firebase_id_token(id_token: str) -> dict[str, Any] | None:
         payload = json.loads(_base64url_decode(payload_b64))
         now = time.time()
         if payload.get("exp", 0) <= now:
-            logger.warning("Firebase token expired")
+            logger.warning(
+                f"Firebase token expired: exp={payload.get('exp')}, now={int(now)}, "
+                f"delta={int(now) - payload.get('exp', 0)}s"
+            )
             return None
         if payload.get("iat", 0) > now:
-            logger.warning("Firebase token iat in the future")
+            logger.warning(
+                f"Firebase token iat in the future: iat={payload.get('iat')}, now={int(now)}"
+            )
             return None
 
         settings = get_settings()
         project_id = getattr(settings, "FIREBASE_PROJECT_ID", "")
         if not project_id:
-            logger.error("FIREBASE_PROJECT_ID is not configured")
+            logger.error(
+                "FIREBASE_PROJECT_ID is not configured — set it in .env. "
+                "All Firebase tokens will be rejected until this is set."
+            )
             return None
         if payload.get("aud") != project_id:
-            logger.warning("Firebase token aud mismatch")
+            logger.warning(
+                f"Firebase token aud mismatch: got='{payload.get('aud')}', "
+                f"expected='{project_id}' — pastikan FIREBASE_PROJECT_ID di .env sudah benar"
+            )
             return None
         expected_iss = f"https://securetoken.google.com/{project_id}"
         if payload.get("iss") != expected_iss:
-            logger.warning("Firebase token iss mismatch")
+            logger.warning(
+                f"Firebase token iss mismatch: got='{payload.get('iss')}', "
+                f"expected='{expected_iss}'"
+            )
             return None
         if not payload.get("sub"):
             logger.warning("Firebase token sub missing")
@@ -94,7 +108,10 @@ def verify_firebase_id_token(id_token: str) -> dict[str, Any] | None:
 
         certs = _get_firebase_certs()
         if not certs or kid not in certs:
-            logger.warning(f"Firebase cert not found for kid: {kid}")
+            logger.warning(
+                f"Firebase cert not found for kid: {kid}. "
+                f"Available kids: {list(certs.keys()) if certs else 'none (fetch failed)'}"
+            )
             return None
 
         cert = x509.load_pem_x509_certificate(certs[kid].encode())

@@ -136,3 +136,28 @@ class ProductColorCreate(ProductColorBase):
 
 class ProductColorRead(ProductColorBase):
     id: UUID
+
+class ProductBundlingItemBase(BaseModel):
+    product_id: UUID
+    variant_id: UUID | None = None
+    quantity: int = 1
+
+class ProductBundlingItemRead(ProductBundlingItemBase):
+    id: UUID
+    bundling_id: UUID
+
+class ProductBundlingBase(BaseModel):
+    name: str
+    slug: str
+    description: str | None = None
+    price: float = 0.0
+    is_active: bool = True
+    start_date: Any | None = None
+    end_date: Any | None = None
+    discount_type: str | None = None
+    banner: str | None = None
+    image_url: str | None = None
+
+class ProductBundlingRead(ProductBundlingBase):
+    id: UUID
+    items: list[ProductBundlingItemRead] = []

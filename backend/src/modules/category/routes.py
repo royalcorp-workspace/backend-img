@@ -5,6 +5,7 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.http_exceptions import HTTPException
 from ...infrastructure.dependencies import AsyncSessionDep
+from ...infrastructure.auth.dependencies import get_current_user
 from ...modules.rbac.dependencies import require_permission
 from ..common.utils.error_handler import handle_exception
 from .dependencies import CategoryServiceDep
@@ -57,7 +58,7 @@ router = APIRouter(tags=["Categories"])
 )
 async def list_categories(
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("categories:read"))],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
     category_service: CategoryServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -104,7 +105,7 @@ async def list_categories(
 )
 async def list_categories_flat(
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("categories:read"))],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
     category_service: CategoryServiceDep,
 ) -> list[Any]:
     return await category_service.get_flat(db)
@@ -223,7 +224,7 @@ async def create_category(
 async def get_category(
     category_id: int,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("categories:read"))],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
     category_service: CategoryServiceDep,
 ) -> dict[str, Any]:
     return await category_service.get_by_id(db, category_id)

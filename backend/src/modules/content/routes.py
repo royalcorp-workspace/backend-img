@@ -705,3 +705,49 @@ async def delete_warranty_claim(
     service: ContentServiceDep,
 ) -> None:
     await service.delete_warranty_claim(db, item_id)
+
+from sqlalchemy import select
+from .models import Banner, HomepageSection, Event, Notification
+
+# ==========================================
+# 8. BANNERS
+# ==========================================
+@router.get("/banners", summary="Get Active Banners", description="Get active banners for mobile app")
+async def get_banners(db: AsyncSessionDep):
+    stmt = select(Banner).where(Banner.deleted == False, Banner.is_active == True).order_by(Banner.sort_order.asc())
+    result = await db.execute(stmt)
+    return {"success": True, "data": result.scalars().all()}
+
+# ==========================================
+# 9. HOMEPAGE SECTIONS
+# ==========================================
+@router.get("/homepages", summary="Get Homepage Layout", description="Get active homepage layout config")
+async def get_homepage_sections(db: AsyncSessionDep):
+    stmt = select(HomepageSection).where(HomepageSection.is_visible == True).order_by(HomepageSection.sort_order.asc())
+    result = await db.execute(stmt)
+    return {"success": True, "data": result.scalars().all()}
+
+# ==========================================
+# 10. EVENTS & POPUPS
+# ==========================================
+@router.get("/events/active", summary="Get Active Events", description="Get active events with their popups")
+async def get_active_events(db: AsyncSessionDep):
+    from datetime import datetime
+    now = datetime.now()
+    stmt = select(Event).where(
+        Event.deleted == False, 
+        Event.is_active == True,
+        Event.start_date <= now,
+        Event.end_date >= now
+    )
+    result = await db.execute(stmt)
+    return {"success": True, "data": result.scalars().unique().all()}
+
+# ==========================================
+# 11. NOTIFICATIONS
+# ==========================================
+@router.get("/notifications", summary="Get Broadcast Notifications", description="Get latest notifications")
+async def get_notifications(db: AsyncSessionDep):
+    stmt = select(Notification).where(Notification.is_broadcast == True).order_by(Notification.created_at.desc()).limit(20)
+    result = await db.execute(stmt)
+    return {"success": True, "data": result.scalars().all()}
