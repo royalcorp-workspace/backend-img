@@ -9,9 +9,13 @@ from . import models, schemas
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+from sqlalchemy.orm import selectinload
+
 @router.get("/conversations", response_model=list[schemas.ConversationResponse])
 async def get_conversations(db: AsyncSession = Depends(async_session)):
-    result = await db.execute(select(models.Conversation))
+    result = await db.execute(
+        select(models.Conversation).options(selectinload(models.Conversation.messages))
+    )
     return result.scalars().all()
 
 @router.get("/{conversation_id}/messages", response_model=list[schemas.MessageResponse])
