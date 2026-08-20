@@ -56,7 +56,6 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "status": img.status,
                 "created_at": img.created_at,
                 "updated_at": img.updated_at,
-                "deleted": img.deleted,
             }
             for img in (product.images or [])
         ],
@@ -114,6 +113,17 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "deleted": r.deleted,
             }
             for r in (product.reviews or [])
+        ],
+        "suggestions": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "slug": s.slug,
+                "thumbnail": s.thumbnail,
+                "alt_text": s.alt_text,
+                "base_price": s.base_price,
+            }
+            for s in (getattr(product, "suggestions", []) or [])
         ],
     }
 
@@ -195,6 +205,7 @@ class ProductService:
                 selectinload(Product.variants),
                 selectinload(Product.colors),
                 selectinload(Product.reviews),
+                selectinload(Product.suggestions),
             )
             .where(Product.deleted.is_(False))
             .offset(skip)
@@ -312,6 +323,7 @@ class ProductService:
                 selectinload(Product.variants),
                 selectinload(Product.colors),
                 selectinload(Product.reviews),
+                selectinload(Product.suggestions),
             )
             .where(Product.id == product_id, Product.deleted.is_(False))
         )
