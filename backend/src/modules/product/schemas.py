@@ -31,6 +31,7 @@ class Product(ProductBase, TimestampSchema):
     colors: list[dict[str, Any]] = []
     price_product_settings: list[dict[str, Any]] = []
     reviews: list[dict[str, Any]] = []
+    suggestions: list[dict[str, Any]] = []
     avg_rating: float = 0.0
     total_reviews: int = 0
 
@@ -64,6 +65,7 @@ class ProductRead(ProductBase):
     colors: list[dict[str, Any]] = []
     price_product_settings: list[dict[str, Any]] = []
     reviews: list[dict[str, Any]] = []
+    suggestions: list[dict[str, Any]] = []
     avg_rating: float = 0.0
     total_reviews: int = 0
     final_price: float = 0.0

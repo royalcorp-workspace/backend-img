@@ -61,6 +61,16 @@ class Product(Base, TimestampMixin):
     reviews: Mapped[list["Review"]] = relationship(
         "Review", back_populates="product", lazy="selectin", cascade="all, delete-orphan", init=False
     )
+    suggestions: Mapped[list["Product"]] = relationship(
+        "Product",
+        secondary="product_suggestions",
+        primaryjoin="Product.id==ProductSuggestion.product_id",
+        secondaryjoin="Product.id==ProductSuggestion.suggested_product_id",
+        order_by="ProductSuggestion.sort_order",
+        lazy="selectin",
+        init=False,
+        viewonly=True,
+    )
 
 
 class ProductImage(Base, TimestampMixin):
@@ -79,6 +89,14 @@ class ProductImage(Base, TimestampMixin):
     status: Mapped[bool] = mapped_column(Boolean, default=True)
 
     product: Mapped["Product"] = relationship("Product", back_populates="images", lazy="selectin", init=False)
+
+
+class ProductSuggestion(Base):
+    __tablename__ = "product_suggestions"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), primary_key=True)
+    suggested_product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), primary_key=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class ProductVariant(Base, TimestampMixin):
