@@ -128,6 +128,12 @@ class OrderService:
 
     async def create(self, db: AsyncSession, order_in: OrderCreate) -> Any:
         order_data = order_in.model_dump(exclude={"items"})
+        
+        # Inject platform info into meta
+        meta = order_data.get("meta") or {}
+        meta["platform"] = "mobile_app"
+        order_data["meta"] = meta
+        
         order = Order(**order_data)
         db.add(order)
         await db.flush()
