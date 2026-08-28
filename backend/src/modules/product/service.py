@@ -35,11 +35,9 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
         "alt_text": product.alt_text,
         "short_description": product.short_description,
         "description": product.description,
-        "base_price": product.base_price,
         "segments": product.segments,
         "best_seller": product.best_seller,
         "is_new": product.is_new,
-        "sort_order": product.sort_order,
         "status": product.status,
         "creator": product.creator,
         "editor": product.editor,
@@ -65,7 +63,8 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "product_id": v.product_id,
                 "sku": v.sku,
                 "variant_name": v.variant_name,
-                "price": v.price,
+                "base_price": v.base_price,
+                "sell_price": v.sell_price,
                 "stock_qty": v.stock_qty,
                 "attributes": v.attributes,
                 "creator": v.creator,
@@ -121,7 +120,6 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "slug": s.slug,
                 "thumbnail": s.thumbnail,
                 "alt_text": s.alt_text,
-                "base_price": s.base_price,
             }
             for s in (getattr(product, "suggestions", []) or [])
         ],
@@ -279,7 +277,7 @@ class ProductService:
             ]
             product_dict["price_product_settings"] = product_settings
             product_dict["final_price"] = _calculate_final_price(
-                float(product.base_price or 0),
+                0.0,
                 product_settings,
             )
 
@@ -297,7 +295,7 @@ class ProductService:
                     else:
                         variant["price_product_settings"] = product_settings
                     variant["final_price"] = _calculate_final_price(
-                        float(v.price or 0),
+                        float(v.sell_price or 0),
                         variant["price_product_settings"],
                     )
 
@@ -350,7 +348,7 @@ class ProductService:
             for item in (items_by_variant.get(None) or [])
         ]
         product_dict["final_price"] = _calculate_final_price(
-            float(product.base_price or 0),
+            0.0,
             product_dict["price_product_settings"],
         )
 
@@ -368,7 +366,7 @@ class ProductService:
                 else:
                     variant["price_product_settings"] = product_dict["price_product_settings"]
                 variant["final_price"] = _calculate_final_price(
-                    float(v.price or 0),
+                    float(v.sell_price or 0),
                     variant["price_product_settings"],
                 )
 
@@ -387,7 +385,7 @@ class ProductService:
         return await crud_products.create(db=db, object=product_in)
 
     async def update(self, db: AsyncSession, product_id: UUID, product_in: ProductUpdate) -> dict[str, Any]:
-        product = await crud_products.get(db=db, id=product_id, is_deleted=False)
+        product = await crud_products.get(db=db, id=product_id, deleted=False)
         if not product:
             raise ResourceNotFoundError(f"Product with ID {product_id} not found")
         if product_in.slug and product_in.slug != product.get("slug"):
@@ -397,7 +395,7 @@ class ProductService:
         return await crud_products.update(db=db, object=product_in, id=product_id)
 
     async def delete(self, db: AsyncSession, product_id: UUID) -> None:
-        product = await crud_products.get(db=db, id=product_id, is_deleted=False)
+        product = await crud_products.get(db=db, id=product_id, deleted=False)
         if not product:
             raise ResourceNotFoundError(f"Product with ID {product_id} not found")
         await crud_products.delete(db=db, id=product_id)
@@ -408,7 +406,7 @@ class ImageService:
         return await crud_images.create(db=db, object=image_in)
 
     async def delete(self, db: AsyncSession, image_id: UUID) -> None:
-        image = await crud_images.get(db=db, id=image_id, is_deleted=False)
+        image = await crud_images.get(db=db, id=image_id, deleted=False)
         if not image:
             raise ResourceNotFoundError(f"Image with ID {image_id} not found")
         await crud_images.delete(db=db, id=image_id)
@@ -419,13 +417,13 @@ class VariantService:
         return await crud_variants.create(db=db, object=variant_in)
 
     async def update(self, db: AsyncSession, variant_id: UUID, variant_in: ProductVariantCreate) -> dict[str, Any]:
-        variant = await crud_variants.get(db=db, id=variant_id, is_deleted=False)
+        variant = await crud_variants.get(db=db, id=variant_id, deleted=False)
         if not variant:
             raise ResourceNotFoundError(f"Variant with ID {variant_id} not found")
         return await crud_variants.update(db=db, object=variant_in, id=variant_id)
 
     async def delete(self, db: AsyncSession, variant_id: UUID) -> None:
-        variant = await crud_variants.get(db=db, id=variant_id, is_deleted=False)
+        variant = await crud_variants.get(db=db, id=variant_id, deleted=False)
         if not variant:
             raise ResourceNotFoundError(f"Variant with ID {variant_id} not found")
         await crud_variants.delete(db=db, id=variant_id)
@@ -436,13 +434,13 @@ class ColorService:
         return await crud_colors.create(db=db, object=color_in)
 
     async def update(self, db: AsyncSession, color_id: UUID, color_in: ProductColorCreate) -> dict[str, Any]:
-        color = await crud_colors.get(db=db, id=color_id, is_deleted=False)
+        color = await crud_colors.get(db=db, id=color_id, deleted=False)
         if not color:
             raise ResourceNotFoundError(f"Color with ID {color_id} not found")
         return await crud_colors.update(db=db, object=color_in, id=color_id)
 
     async def delete(self, db: AsyncSession, color_id: UUID) -> None:
-        color = await crud_colors.get(db=db, id=color_id, is_deleted=False)
+        color = await crud_colors.get(db=db, id=color_id, deleted=False)
         if not color:
             raise ResourceNotFoundError(f"Color with ID {color_id} not found")
         await crud_colors.delete(db=db, id=color_id)

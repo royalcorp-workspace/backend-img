@@ -19,6 +19,7 @@ from ....modules.user.routes import router as users_router
 from ....modules.voucher.routes import router as vouchers_router
 from ....modules.sync.routes import router as sync_router
 from ....modules.chat.routes import router as chat_router
+from ....modules.payment.routes import router as payment_router
 
 router = APIRouter(prefix="/v1")
 router.include_router(users_router, prefix="/users")
@@ -47,3 +48,4 @@ router.include_router(content_router, prefix="/content")
 router.include_router(sync_router, prefix="/sync")
 router.include_router(add_to_cart_router, prefix="/add-to-cart")
 router.include_router(chat_router)
+router.include_router(payment_router)

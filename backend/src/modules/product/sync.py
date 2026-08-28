@@ -236,7 +236,6 @@ async def sync_products_data(db: AsyncSession, payload: dict[str, Any]) -> dict[
                     product.category_id = category_id
                     product.brand_id = brand_id
                     product.segments = product_meta
-                    product.base_price = str(item.get("base_price")) if item.get("base_price") is not None else None
                     product.uom = item.get("uom")
                     results["updated_products"] += 1
                 else:
@@ -248,7 +247,6 @@ async def sync_products_data(db: AsyncSession, payload: dict[str, Any]) -> dict[
                         category_id=category_id,
                         brand_id=brand_id,
                         description=item.get("short_description") or f"Produk disinkronkan dari POS JDE: {product_name}",
-                        base_price=str(item.get("base_price")) if item.get("base_price") is not None else None,
                         uom=item.get("uom"),
                         segments=product_meta,
                         status=1,
@@ -293,7 +291,8 @@ async def sync_products_data(db: AsyncSession, payload: dict[str, Any]) -> dict[
                             setattr(variant, k, v)
                         results["updated_variants"] += 1
                     else:
-                        variant_data.setdefault("price", safe_float(item.get("base_price") or 0))
+                        variant_data.setdefault("base_price", safe_float(item.get("base_price") or 0))
+                        variant_data.setdefault("sell_price", safe_float(item.get("base_price") or 0))
                         variant = ProductVariant(product_id=product.id, **variant_data)
                         db.add(variant)
                         results["inserted_variants"] += 1
