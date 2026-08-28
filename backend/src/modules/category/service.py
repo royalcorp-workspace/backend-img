@@ -17,13 +17,13 @@ class CategoryService:
         )
 
     async def get_by_id(self, db: AsyncSession, category_id: int) -> dict[str, Any]:
-        category = await crud_categories.get(db=db, id=category_id, is_deleted=False)
+        category = await crud_categories.get(db=db, id=category_id, deleted=False)
         if not category:
             raise ResourceNotFoundError(f"Category with ID {category_id} not found")
         return category
 
     async def get_tree(self, db: AsyncSession) -> list[dict[str, Any]]:
-        result = await crud_categories.get_multi(db=db, schema_to_select=CategoryRead, is_deleted=False)
+        result = await crud_categories.get_multi(db=db, schema_to_select=CategoryRead, deleted=False)
         categories = {c["id"]: c for c in result.get("data", [])}
         roots = []
         for cat in categories.values():
@@ -37,7 +37,7 @@ class CategoryService:
         return roots
 
     async def get_flat(self, db: AsyncSession) -> list[dict[str, Any]]:
-        result = await crud_categories.get_multi(db=db, schema_to_select=CategoryRead, is_deleted=False)
+        result = await crud_categories.get_multi(db=db, schema_to_select=CategoryRead, deleted=False)
         return result.get("data", [])
 
     async def create(self, db: AsyncSession, category_in: CategoryCreate) -> dict[str, Any]:
@@ -47,7 +47,7 @@ class CategoryService:
         return await crud_categories.create(db=db, object=category_in)
 
     async def update(self, db: AsyncSession, category_id: int, category_in: CategoryUpdate) -> dict[str, Any]:
-        category = await crud_categories.get(db=db, id=category_id, is_deleted=False)
+        category = await crud_categories.get(db=db, id=category_id, deleted=False)
         if not category:
             raise ResourceNotFoundError(f"Category with ID {category_id} not found")
         if category_in.slug and category_in.slug != category.get("slug"):
@@ -57,7 +57,7 @@ class CategoryService:
         return await crud_categories.update(db=db, object=category_in, id=category_id)
 
     async def delete(self, db: AsyncSession, category_id: int) -> None:
-        category = await crud_categories.get(db=db, id=category_id, is_deleted=False)
+        category = await crud_categories.get(db=db, id=category_id, deleted=False)
         if not category:
             raise ResourceNotFoundError(f"Category with ID {category_id} not found")
         await crud_categories.delete(db=db, id=category_id)

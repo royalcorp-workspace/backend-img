@@ -32,12 +32,10 @@ class Product(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, default=None)
     best_seller: Mapped[bool] = mapped_column(Boolean, default=False)
     is_new: Mapped[bool] = mapped_column(Boolean, default=False)
-    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
     status: Mapped[int] = mapped_column(Integer, default=1)
     creator: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     editor: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-    base_price: Mapped[str | None] = mapped_column(String(255), default=None)
     uom: Mapped[str | None] = mapped_column(String(255), default=None)
     segments: Mapped[list[Any] | dict[str, Any] | None] = mapped_column(JSONB, default=None)
 
@@ -84,9 +82,8 @@ class ProductImage(Base, TimestampMixin):
     )
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), nullable=False)
     image: Mapped[str] = mapped_column(String(255), nullable=False)
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("product_variants.id"), default=None)
     alt_text: Mapped[str | None] = mapped_column(String(150), default=None)
-    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
-    status: Mapped[bool] = mapped_column(Boolean, default=True)
 
     product: Mapped["Product"] = relationship("Product", back_populates="images", lazy="selectin", init=False)
 
@@ -111,7 +108,8 @@ class ProductVariant(Base, TimestampMixin):
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), nullable=False)
     sku: Mapped[str | None] = mapped_column(String(100), default=None)
     variant_name: Mapped[str | None] = mapped_column("variant_name", String(100), default=None)
-    price: Mapped[float | None] = mapped_column(default=0.0)
+    base_price: Mapped[float | None] = mapped_column(default=0.0)
+    sell_price: Mapped[float | None] = mapped_column(default=0.0)
     stock_qty: Mapped[int | None] = mapped_column("stock_quantity", Integer, default=0)
     attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     creator: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
@@ -186,7 +184,6 @@ class PriceProductSetting(Base, TimestampMixin):
     image_url: Mapped[str | None] = mapped_column(String(255), default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
-    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
     creator: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     editor: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
 
@@ -228,7 +225,6 @@ class VolumeTier(Base, TimestampMixin):
     min_purchase: Mapped[int | None] = mapped_column(Integer, default=0)
     discount_type: Mapped[int | None] = mapped_column(Integer, default=1)
     discount_value: Mapped[int | None] = mapped_column(Integer, default=0)
-    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
 
     price_product_setting: Mapped["PriceProductSetting"] = relationship(
         "PriceProductSetting", back_populates="volume_tiers", lazy="selectin", init=False
@@ -247,6 +243,7 @@ class Brand(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     status: Mapped[int] = mapped_column(Integer, default=1)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

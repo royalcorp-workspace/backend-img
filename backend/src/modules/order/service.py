@@ -141,7 +141,7 @@ class OrderService:
         return await self.get_by_id(db, order.id)
 
     async def update(self, db: AsyncSession, order_id: UUID, order_in: OrderUpdate) -> Any:
-        order = await crud_orders.get(db=db, id=order_id, is_deleted=False)
+        order = await crud_orders.get(db=db, id=order_id, deleted=False)
         if not order:
             raise ResourceNotFoundError(f"Order with ID {order_id} not found")
 
@@ -151,7 +151,7 @@ class OrderService:
         return await self.get_by_id(db, order_id)
 
     async def delete(self, db: AsyncSession, order_id: UUID) -> None:
-        order = await crud_orders.get(db=db, id=order_id, is_deleted=False)
+        order = await crud_orders.get(db=db, id=order_id, deleted=False)
         if not order:
             raise ResourceNotFoundError(f"Order with ID {order_id} not found")
         await crud_orders.delete(db=db, id=order_id)

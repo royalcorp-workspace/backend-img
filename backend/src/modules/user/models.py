@@ -52,9 +52,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
-    roles: Mapped[list["Role"]] = relationship(
-        "Role", secondary="rbac_user_roles", back_populates="users", lazy="noload", init=False
-    )
 
     @property
     def is_active(self) -> bool:

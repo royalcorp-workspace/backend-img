@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -48,7 +49,7 @@ class AboutUsUpdate(BaseModel):
 
 
 class AboutUsRead(AboutUsBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
 
 
 # --- Blog Post ---
@@ -87,7 +88,7 @@ class BlogPostUpdate(BaseModel):
 
 
 class BlogPostRead(BlogPostBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
 
 
 # --- FAQ ---
@@ -112,7 +113,7 @@ class FaqUpdate(BaseModel):
 
 
 class FaqRead(FaqBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
 
 
 # --- How To Return ---
@@ -145,7 +146,7 @@ class HowToReturnUpdate(BaseModel):
 
 
 class HowToReturnRead(HowToReturnBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
 
 
 # --- Privacy Policy ---
@@ -178,7 +179,7 @@ class PrivacyPolicyUpdate(BaseModel):
 
 
 class PrivacyPolicyRead(PrivacyPolicyBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
 
 
 # --- Terms and Condition ---
@@ -211,7 +212,7 @@ class TermsAndConditionUpdate(BaseModel):
 
 
 class TermsAndConditionRead(TermsAndConditionBase, TimestampSchema):
-    id: int
+    id: uuid.UUID
 
 
 # --- Warranty Claim ---
@@ -248,4 +249,4 @@ class WarrantyClaimUpdate(BaseModel):
 
 
 class WarrantyClaimRead(WarrantyClaimBase, TimestampSchema):
-    id: int
+    id: uuid.UUID

@@ -18,7 +18,7 @@ class PaymentMethodService:
         )
 
     async def get_by_id(self, db: AsyncSession, method_id: UUID) -> dict[str, Any]:
-        method = await crud_payment_methods.get(db=db, id=method_id, is_deleted=False)
+        method = await crud_payment_methods.get(db=db, id=method_id, deleted=False)
         if not method:
             raise ResourceNotFoundError(f"Payment method with ID {method_id} not found")
         return method
@@ -32,7 +32,7 @@ class PaymentMethodService:
         return res
 
     async def update(self, db: AsyncSession, method_id: UUID, method_in: PaymentMethodUpdate) -> dict[str, Any]:
-        method = await crud_payment_methods.get(db=db, id=method_id, is_deleted=False)
+        method = await crud_payment_methods.get(db=db, id=method_id, deleted=False)
         if not method:
             raise ResourceNotFoundError(f"Payment method with ID {method_id} not found")
         if method_in.code and method_in.code != method.get("code"):
@@ -44,7 +44,7 @@ class PaymentMethodService:
         return res
 
     async def delete(self, db: AsyncSession, method_id: UUID) -> None:
-        method = await crud_payment_methods.get(db=db, id=method_id, is_deleted=False)
+        method = await crud_payment_methods.get(db=db, id=method_id, deleted=False)
         if not method:
             raise ResourceNotFoundError(f"Payment method with ID {method_id} not found")
         await crud_payment_methods.delete(db=db, id=method_id)

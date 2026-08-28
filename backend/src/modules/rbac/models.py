@@ -32,16 +32,6 @@ class Role(Base, TimestampMixin, SoftDeleteMixin):
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    users: Mapped[list["User"]] = relationship(
-        "User", secondary="rbac_user_roles", back_populates="roles", lazy="noload", init=False
-    )
-    permissions: Mapped[list["Permission"]] = relationship(
-        "Permission",
-        secondary="rbac_role_permissions",
-        back_populates="roles",
-        lazy="selectin",
-        init=False,
-    )
 
 
 class Permission(Base, TimestampMixin, SoftDeleteMixin):
@@ -60,13 +50,6 @@ class Permission(Base, TimestampMixin, SoftDeleteMixin):
     description: Mapped[str | None] = mapped_column(String(255), default=None, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    roles: Mapped[list["Role"]] = relationship(
-        "Role",
-        secondary="rbac_role_permissions",
-        back_populates="permissions",
-        lazy="selectin",
-        init=False,
-    )
 
 
 class RBACUserRole(Base):

@@ -17,9 +17,7 @@ class ProductBase(BaseModel):
     description: str | None = None
     best_seller: bool = False
     is_new: bool = False
-    sort_order: int | None = 0
     status: int = 1
-    base_price: str | None = None
     uom: str | None = None
     segments: list[Any] | dict[str, Any] | None = None
 
@@ -51,9 +49,7 @@ class ProductUpdate(BaseModel):
     description: str | None = None
     best_seller: bool | None = None
     is_new: bool | None = None
-    sort_order: int | None = None
     status: int | None = None
-    base_price: str | None = None
     uom: str | None = None
     segments: list[Any] | dict[str, Any] | None = None
 
@@ -73,10 +69,9 @@ class ProductRead(ProductBase):
 
 class ProductImageBase(BaseModel):
     product_id: UUID
+    variant_id: UUID | None = None
     image: str
     alt_text: str | None = None
-    sort_order: int | None = 0
-    status: bool = True
 
 
 class ProductImage(ProductImageBase, TimestampSchema):
@@ -99,11 +94,10 @@ class ProductVariantBase(BaseModel):
     length: float | None = 0.0
     height: float | None = 0.0
     weight: float | None = 0.0
-    price: float | None = 0.0
+    base_price: float | None = 0.0
+    sell_price: float | None = 0.0
     stock_qty: int | None = 0
-    min_order_qty: int | None = 1
-    sort_order: int | None = 0
-    status: bool = True
+    attributes: dict | None = None
 
 
 class ProductVariant(ProductVariantBase, TimestampSchema):
@@ -125,7 +119,6 @@ class ProductColorBase(BaseModel):
     product_id: UUID
     color_name: Annotated[str, Field(min_length=1, max_length=50)]
     color_code: str | None = None
-    status: bool = True
 
 
 class ProductColor(ProductColorBase, TimestampSchema):
