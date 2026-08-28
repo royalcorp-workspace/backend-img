@@ -19,6 +19,65 @@ from .sync import sync_pos_products_task, sync_products_data
 router = APIRouter(tags=['Products'])
 logger = get_logger()
 
+PRODUCT_EXAMPLE = {
+    "id": "25043f8a-7517-4caa-a8bb-144e8e6e7a78",
+    "name": "KB GRAND X LB-17",
+    "slug": "kb-grand-x-lb-17-nmpb",
+    "category_id": "0c7c1906-a7d8-40a5-b0fe-ae2dfaca378e",
+    "thumbnail": "https://cms.domain.com/storage/products/kb-grand.jpg",
+    "alt_text": "Kasur Busa Grand",
+    "short_description": "Kasur Busa Berkualitas",
+    "description": "Kasur busa dengan density tinggi, awet dan tidak mudah kempes.",
+    "base_price": 1250000.0,
+    "segments": {
+        "uom": "PC",
+        "segment1": "KB",
+        "segment2": "GRAND"
+    },
+    "best_seller": True,
+    "is_new": False,
+    "sort_order": 1,
+    "status": True,
+    "images": [
+        {
+            "id": "99043f8a-7517-4caa-a8bb-144e8e6e7a99",
+            "product_id": "25043f8a-7517-4caa-a8bb-144e8e6e7a78",
+            "image": "https://cms.domain.com/storage/products/kb-grand-2.jpg",
+            "alt_text": "Kasur Busa Grand Side",
+            "status": True
+        }
+    ],
+    "variants": [
+        {
+            "id": "88043f8a-7517-4caa-a8bb-144e8e6e7a88",
+            "product_id": "25043f8a-7517-4caa-a8bb-144e8e6e7a78",
+            "sku": "KBGRAND120200",
+            "variant_name": "120 x 200 cm",
+            "width": 120.0,
+            "length": 200.0,
+            "height": 20.0,
+            "weight": 15.0,
+            "sell_price": 1250000.0,
+            "base_price": 1250000.0,
+            "status": True
+        }
+    ],
+    "colors": [
+        {
+            "id": "77043f8a-7517-4caa-a8bb-144e8e6e7a77",
+            "product_id": "25043f8a-7517-4caa-a8bb-144e8e6e7a78",
+            "color_name": "Merah",
+            "color_code": "RED",
+            "status": True
+        }
+    ],
+    "price_product_settings": [],
+    "reviews": [],
+    "avg_rating": 4.8,
+    "total_reviews": 15
+}
+
+
 @router.get('/', response_model=PaginatedListResponse[ProductRead], summary='List Products', description='Get a paginated list of products with optional filters.', responses={200: {'description': 'Paginated list of products', 'content': {'application/json': {'example': {'data': [{'id': 1, 'name': 'DV (L1) HOTEL CLASSIC LH-8', 'slug': 'dvl100220010607', 'category_id': 3, 'thumbnail': 'https://example.com/images/dvl100220010607.jpg', 'alt_text': 'DV (L1) HOTEL CLASSIC LH-8 Image', 'short_description': '200 X 090', 'description': 'Produk disinkronkan dari POS JDE: DV (L1) HOTEL CLASSIC LH-8', 'base_price': 0.0, 'segments': {'uom': 'PC', 'segment1': 'DV', 'segment2': 'L1002200', 'segment3': '10607', 'segment4': 'S', 'segment5': '200', 'segment6': '090', 'segment7': '', 'segment8': '', 'segment9': '', 'segment10': '', 'base_price': 0}, 'best_seller': True, 'is_new': False, 'sort_order': 1, 'status': True, 'images': [{'id': 1, 'product_id': 1, 'image': 'https://example.com/images/dvl100220010607.jpg', 'alt_text': 'DV (L1) HOTEL CLASSIC LH-8 Image', 'status': True}], 'variants': [{'id': 1, 'product_id': 1, 'sku': 'DVL100220010607S200090', 'variant_name': '200 X 090', 'width': 90.0, 'length': 200.0, 'height': 0.0, 'weight': 0.0, 'price': 0.0, 'status': True, 'price_product_settings': []}], 'colors': [{'id': 1, 'product_id': 1, 'color_name': 'Fabric 10607', 'color_code': '10607', 'status': True}], 'price_product_settings': [{'id': 1, 'title': 'Diskon Weekend', 'code': 'WEEKEND10', 'discount_type': 1, 'discount_value': 10.0, 'max_discount': 50000.0, 'min_purchase': 0.0, 'is_active': True}], 'reviews': [], 'avg_rating': 0.0, 'total_reviews': 0}], 'total_count': 1, 'has_more': False, 'page': 1, 'items_per_page': 10}}}}, 401: {'description': 'Not authenticated', 'content': {'application/json': {'example': {'detail': 'Not authenticated', 'support_id': 'a1b2c3d4'}}}}, 403: {'description': 'Not authorized', 'content': {'application/json': {'example': {'detail': 'Not authorized', 'support_id': 'a1b2c3d4'}}}}})
 async def list_products(db: AsyncSessionDep, current_user: Annotated[dict[str, Any], Depends(get_current_user)], product_service: ProductServiceDep, page: int=1, items_per_page: int=10, category_id: UUID | None=None, status: int | None=None, best_seller: bool | None=None, is_new: bool | None=None, search: str | None=None) -> dict[str, Any]:
     filters = {}

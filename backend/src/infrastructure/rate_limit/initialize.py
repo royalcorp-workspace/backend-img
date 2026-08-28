@@ -4,6 +4,7 @@ import importlib.util
 
 from ..config import CacheBackend, get_settings
 from .provider import rate_limiter_provider
+from .exceptions import BackendNotFoundError
 
 MEMCACHED_INSTALLED = importlib.util.find_spec("aiomcache") is not None
 REDIS_INSTALLED = importlib.util.find_spec("redis") is not None
@@ -64,12 +65,15 @@ async def close_rate_limiter() -> None:
     if not settings.RATE_LIMITER_ENABLED:
         return
 
-    if settings.RATE_LIMITER_BACKEND == CacheBackend.MEMCACHED.value and MEMCACHED_INSTALLED:
-        backend = rate_limiter_provider.get_backend(CacheBackend.MEMCACHED.value)
-        if hasattr(backend, "client") and hasattr(backend.client, "close"):
-            await backend.client.close()
+    try:
+        if settings.RATE_LIMITER_BACKEND == CacheBackend.MEMCACHED.value and MEMCACHED_INSTALLED:
+            backend = rate_limiter_provider.get_backend(CacheBackend.MEMCACHED.value)
+            if hasattr(backend, "client") and hasattr(backend.client, "close"):
+                await backend.client.close()
 
-    elif settings.RATE_LIMITER_BACKEND == CacheBackend.REDIS.value and REDIS_INSTALLED:
-        backend = rate_limiter_provider.get_backend(CacheBackend.REDIS.value)
-        if hasattr(backend, "client") and hasattr(backend.client, "close"):
-            await backend.client.close()
+        elif settings.RATE_LIMITER_BACKEND == CacheBackend.REDIS.value and REDIS_INSTALLED:
+            backend = rate_limiter_provider.get_backend(CacheBackend.REDIS.value)
+            if hasattr(backend, "client") and hasattr(backend.client, "close"):
+                await backend.client.close()
+    except BackendNotFoundError:
+        pass

@@ -50,8 +50,7 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "product_id": img.product_id,
                 "image": img.image,
                 "alt_text": img.alt_text,
-                "sort_order": img.sort_order,
-                "status": img.status,
+                "variant_id": img.variant_id,
                 "created_at": img.created_at,
                 "updated_at": img.updated_at,
             }
@@ -205,11 +204,17 @@ class ProductService:
                 selectinload(Product.reviews),
                 selectinload(Product.suggestions),
             )
-            .where(Product.deleted.is_(False))
+            .where(
+                Product.deleted.is_(False),
+                Product.variants.any(ProductVariant.sell_price > 0)
+            )
             .offset(skip)
             .limit(limit)
         )
-        count_query = select(func.count()).select_from(Product).where(Product.deleted.is_(False))
+        count_query = select(func.count()).select_from(Product).where(
+            Product.deleted.is_(False),
+            Product.variants.any(ProductVariant.sell_price > 0)
+        )
 
         for key, value in filters.items():
             if "__" in key:

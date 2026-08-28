@@ -4,6 +4,7 @@ from ..config import CacheBackend
 from ..config.settings import get_settings
 from . import MEMCACHED_INSTALLED, REDIS_INSTALLED
 from .provider import cache_provider
+from .exceptions import BackendNotFoundError
 
 if MEMCACHED_INSTALLED:
     from .backends import MemcachedBackend, MemcachedSettings
@@ -62,12 +63,15 @@ async def close_cache() -> None:
     if not settings.CACHE_ENABLED:
         return
 
-    if settings.CACHE_BACKEND == CacheBackend.MEMCACHED.value and MEMCACHED_INSTALLED:
-        backend = cache_provider.get_backend(CacheBackend.MEMCACHED.value)
-        if hasattr(backend, "client") and hasattr(backend.client, "close"):
-            await backend.client.close()
+    try:
+        if settings.CACHE_BACKEND == CacheBackend.MEMCACHED.value and MEMCACHED_INSTALLED:
+            backend = cache_provider.get_backend(CacheBackend.MEMCACHED.value)
+            if hasattr(backend, "client") and hasattr(backend.client, "close"):
+                await backend.client.close()
 
-    elif settings.CACHE_BACKEND == CacheBackend.REDIS.value and REDIS_INSTALLED:
-        backend = cache_provider.get_backend(CacheBackend.REDIS.value)
-        if hasattr(backend, "client") and hasattr(backend.client, "close"):
-            await backend.client.close()
+        elif settings.CACHE_BACKEND == CacheBackend.REDIS.value and REDIS_INSTALLED:
+            backend = cache_provider.get_backend(CacheBackend.REDIS.value)
+            if hasattr(backend, "client") and hasattr(backend.client, "close"):
+                await backend.client.close()
+    except BackendNotFoundError:
+        pass
