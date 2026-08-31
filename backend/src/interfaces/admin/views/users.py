@@ -25,10 +25,10 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     icon = "fa-solid fa-user"
     category = "Users & Access"
 
-    column_list = [User.id, User.name, User.username, User.email, User.is_superuser, User.tier]
+    column_list = [User.id, User.name, User.email, User.is_active, User.customer_type]
     column_details_list = "__all__"
-    column_searchable_list = [User.name, User.username, User.email]
-    column_sortable_list = [User.id, User.name, User.username, User.email]
+    column_searchable_list = [User.name, User.email]
+    column_sortable_list = [User.id, User.name, User.email]
     column_default_sort = [(User.id, True)]
 
     can_create = True
@@ -37,18 +37,18 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     can_view_details = True
     can_export = True
 
-    column_labels = {"hashed_password": "Password"}
+    column_labels = {"password": "Password"}
 
-    form_create_rules = ["name", "username", "email", "hashed_password", "tier_id", "is_superuser"]
-    form_edit_rules = [*UserUpdate.model_fields.keys(), "tier_id", "is_superuser"]
+    form_create_rules = ["name", "email", "password", "customer_type", "is_active"]
+    form_edit_rules = ["name", "email", "customer_type", "is_active"]
 
     form_overrides = {"oauth_provider": SelectField}
     form_args = {"oauth_provider": {"choices": OAUTH_PROVIDER_CHOICES}}
 
     async def on_model_change(self, data: dict[str, Any], model: Any, is_created: bool, request: Request) -> None:
         """Hash the password before saving."""
-        if is_created and "hashed_password" in data and data["hashed_password"]:
-            data["hashed_password"] = get_password_hash(data["hashed_password"])
+        if is_created and "password" in data and data["password"]:
+            data["password"] = get_password_hash(data["password"])
         if "oauth_provider" in data and data["oauth_provider"] == "":
             data["oauth_provider"] = None
 

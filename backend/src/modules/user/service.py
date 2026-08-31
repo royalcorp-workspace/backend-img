@@ -106,7 +106,7 @@ class UserService:
             ValueError: If database session is None.
 
         Note:
-            Only returns non-deleted users (is_deleted=False).
+            Only returns non-deleted users (deleted=False).
             Returns data in format: {"data": [...], "count": int, "has_more": bool}
 
         Example:
@@ -124,7 +124,7 @@ class UserService:
             offset=skip,
             limit=limit,
             schema_to_select=UserRead,
-            is_deleted=False,
+            deleted=False,
         )
 
     async def get_by_username(self, username: str, db: AsyncSession) -> dict[str, Any]:
@@ -156,7 +156,7 @@ class UserService:
             db=db,
             schema_to_select=UserRead,
             username=username,
-            is_deleted=False,
+            deleted=False,
         )
         if not user:
             raise UserNotFoundError(f"User with username '{username}' not found")
@@ -218,7 +218,7 @@ class UserService:
             db=db,
             schema_to_select=UserRead,
             email=email,
-            is_deleted=False,
+            deleted=False,
         )
         if not user:
             raise UserNotFoundError(f"User with email '{email}' not found")
@@ -255,7 +255,7 @@ class UserService:
             updated_user = await service.update(123, update_data, db)
             ```
         """
-        existing_user = await crud_users.get(db=db, id=user_id, is_deleted=False)
+        existing_user = await crud_users.get(db=db, id=user_id, deleted=False)
         if not existing_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
@@ -497,7 +497,7 @@ class UserService:
             updated_user = await service.update_tier(123, tier_update, db)
             ```
         """
-        existing_user = await crud_users.get(db=db, id=user_id, is_deleted=False)
+        existing_user = await crud_users.get(db=db, id=user_id, deleted=False)
         if not existing_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
@@ -540,7 +540,7 @@ class UserService:
                 print(f"Rate limit: {limit['resource']} - {limit['limit']}")
             ```
         """
-        user = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
+        user = await crud_users.get(db=db, id=user_id, deleted=False, schema_to_select=UserRead)
         if not user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
@@ -602,7 +602,7 @@ class UserService:
                 print(f"User tier: {user_data['tier']['name']}")
             ```
         """
-        user_dict = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
+        user_dict = await crud_users.get(db=db, id=user_id, deleted=False, schema_to_select=UserRead)
         if not user_dict:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 

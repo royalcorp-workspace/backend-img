@@ -51,7 +51,7 @@ class RateLimitService:
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Get all rate limits with pagination."""
         return await crud_rate_limits.get_multi(
-            db=db, offset=skip, limit=limit, schema_to_select=RateLimitRead, is_deleted=False
+            db=db, offset=skip, limit=limit, schema_to_select=RateLimitRead, deleted=False
         )
 
     async def get_by_id(self, rate_limit_id: int, db: AsyncSession) -> dict[str, Any]:
@@ -60,7 +60,7 @@ class RateLimitService:
             db=db,
             id=rate_limit_id,
             schema_to_select=RateLimitRead,
-            is_deleted=False,
+            deleted=False,
         )
         if not rate_limit:
             raise ResourceNotFoundError(f"Rate limit with ID {rate_limit_id} not found")
@@ -72,7 +72,7 @@ class RateLimitService:
             db=db,
             name=name,
             schema_to_select=RateLimitRead,
-            is_deleted=False,
+            deleted=False,
         )
         if not rate_limit:
             raise ResourceNotFoundError(f"Rate limit with name '{name}' not found")

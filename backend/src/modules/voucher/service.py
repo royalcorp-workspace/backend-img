@@ -17,7 +17,7 @@ class VoucherService:
         )
 
     async def get_by_id(self, db: AsyncSession, voucher_id: int) -> dict[str, Any]:
-        voucher = await crud_vouchers.get(db=db, id=voucher_id, is_deleted=False)
+        voucher = await crud_vouchers.get(db=db, id=voucher_id, deleted=False)
         if not voucher:
             raise ResourceNotFoundError(f"Voucher with ID {voucher_id} not found")
         return voucher
@@ -29,7 +29,7 @@ class VoucherService:
         return await crud_vouchers.create(db=db, object=voucher_in)
 
     async def update(self, db: AsyncSession, voucher_id: int, voucher_in: VoucherUpdate) -> dict[str, Any]:
-        voucher = await crud_vouchers.get(db=db, id=voucher_id, is_deleted=False)
+        voucher = await crud_vouchers.get(db=db, id=voucher_id, deleted=False)
         if not voucher:
             raise ResourceNotFoundError(f"Voucher with ID {voucher_id} not found")
         if voucher_in.code and voucher_in.code != voucher.get("code"):
@@ -39,7 +39,7 @@ class VoucherService:
         return await crud_vouchers.update(db=db, object=voucher_in, id=voucher_id)
 
     async def delete(self, db: AsyncSession, voucher_id: int) -> None:
-        voucher = await crud_vouchers.get(db=db, id=voucher_id, is_deleted=False)
+        voucher = await crud_vouchers.get(db=db, id=voucher_id, deleted=False)
         if not voucher:
             raise ResourceNotFoundError(f"Voucher with ID {voucher_id} not found")
         await crud_vouchers.delete(db=db, id=voucher_id)

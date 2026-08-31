@@ -281,7 +281,7 @@ async def firebase_login(
         logger.warning("Firebase token missing email or uid", {"claims": verified_claims})
         raise HTTPException(status_code=422, detail="Firebase token does not contain required user info")
 
-    user = await crud_users.get_multi(db=db, email=email, is_deleted=False)
+    user = await crud_users.get_multi(db=db, email=email, deleted=False)
     matched = None
     if user.get("data"):
         for u in user["data"]:
@@ -635,7 +635,7 @@ async def check_auth(
         return {"authenticated": False, "message": "Not authenticated"}
 
     try:
-        user = await crud_users.get(db=db, id=principal.user_id, is_deleted=False)
+        user = await crud_users.get(db=db, id=principal.user_id, deleted=False)
 
         if not user:
             return {"authenticated": False, "message": "User not found"}

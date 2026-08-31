@@ -17,7 +17,7 @@ class RBACService:
                 db=db, role_id=ur["role_id"]
             )
             for rp in role_perms.get("data", []):
-                perm = await crud_permissions.get(db=db, id=rp["permission_id"], is_deleted=False)
+                perm = await crud_permissions.get(db=db, id=rp["permission_id"], deleted=False)
                 if perm and perm.get("is_active", False):
                     permissions.add(perm["name"])
         return permissions
