@@ -241,6 +241,7 @@ def create_application(
     metadata["redoc_url"] = _redoc_url
     metadata["openapi_url"] = _openapi_url
 
+    kwargs["swagger_ui_parameters"] = {"operationsSorter": "alpha", "tagsSorter": "alpha"}
     kwargs.update(metadata)
 
     hide_docs = (

@@ -233,7 +233,7 @@ class AuthSettings(BaseSettings):
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)
     SESSION_BACKEND: str = config("SESSION_BACKEND", default=SessionBackend.REDIS.value)
 
-    CSRF_ENABLED: bool = config("CSRF_ENABLED", default=True, cast=bool)
+    CSRF_ENABLED: bool = False
 
     # Number of trusted reverse proxies in front of the app. crudauth resolves the
     # client IP for login lockout from the last hop of X-Forwarded-For; 0 = the socket

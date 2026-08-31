@@ -11,7 +11,7 @@ from ..customer.models import Customer
 from ..order.models import Order, OrderItem
 from ..product.models import Product, ProductVariant
 from .crud import crud_add_to_cart_items, crud_add_to_carts
-from .models import AddToCart, AddToCartItem
+from .models import AddToCart, AddToCartItem, AddToCartItem
 from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartUpdate
 
 logger = get_logger()
@@ -64,13 +64,12 @@ def _add_to_cart_to_dict(add_to_cart: AddToCart) -> dict[str, Any]:
                     "id": item.product.id,
                     "name": item.product.name,
                     "slug": item.product.slug,
-                    "base_price": item.product.base_price,
                 } if item.product else None,
                 "variant": {
                     "id": item.variant.id,
                     "product_id": item.variant.product_id,
                     "variant_name": item.variant.variant_name,
-                    "price": item.variant.price,
+                    "sell_price": item.variant.sell_price,
                     "sku": item.variant.sku,
                 } if item.variant else None,
             }
@@ -139,9 +138,26 @@ class AddToCartService:
         return _add_to_cart_to_dict(add_to_cart)
 
     async def create(self, db: AsyncSession, buffer_in: AddToCartCreate) -> dict[str, Any]:
-        buffer_data = buffer_in.model_dump()
+        buffer_data = buffer_in.model_dump(exclude={"items"})
         add_to_cart = AddToCart(**buffer_data)
         db.add(add_to_cart)
+        await db.flush()
+        
+        # Add items if provided
+        for item_in in buffer_in.items:
+            item_data = item_in.model_dump()
+            cart_item = AddToCartItem(add_to_cart_id=add_to_cart.id, **item_data)
+            logger.warning(f'DEBUG ITEM DATA: {item_data} | CART ITEM: {cart_item.product_variant_id}')
+            db.add(cart_item)
+            
+        await db.flush()
+        
+        # We need to refresh the relationships to calculate totals
+        await db.refresh(add_to_cart, ["items"])
+        
+        # Recalculate totals
+        _recalculate_add_to_cart_totals(add_to_cart)
+        
         await db.commit()
         return await self.get_by_id(db, add_to_cart.id)
 
@@ -205,13 +221,12 @@ class AddToCartService:
                 "id": new_item.product.id,
                 "name": new_item.product.name,
                 "slug": new_item.product.slug,
-                "base_price": new_item.product.base_price,
             } if new_item.product else None,
             "variant": {
                 "id": new_item.variant.id,
                 "product_id": new_item.variant.product_id,
                 "variant_name": new_item.variant.variant_name,
-                "price": new_item.variant.price,
+                "sell_price": new_item.variant.sell_price,
                 "sku": new_item.variant.sku,
             } if new_item.variant else None,
         }
@@ -261,13 +276,12 @@ class AddToCartService:
                 "id": updated_item.product.id,
                 "name": updated_item.product.name,
                 "slug": updated_item.product.slug,
-                "base_price": updated_item.product.base_price,
             } if updated_item.product else None,
             "variant": {
                 "id": updated_item.variant.id,
                 "product_id": updated_item.variant.product_id,
                 "variant_name": updated_item.variant.variant_name,
-                "price": updated_item.variant.price,
+                "sell_price": updated_item.variant.sell_price,
                 "sku": updated_item.variant.sku,
             } if updated_item.variant else None,
         }
@@ -406,13 +420,12 @@ class AddToCartService:
                         "id": item.product.id,
                         "name": item.product.name,
                         "slug": item.product.slug,
-                        "base_price": item.product.base_price,
                     } if item.product else None,
                     "variant": {
                         "id": item.variant.id,
                         "product_id": item.variant.product_id,
                         "variant_name": item.variant.variant_name,
-                        "price": item.variant.price,
+                        "sell_price": item.variant.sell_price,
                         "sku": item.variant.sku,
                     } if item.variant else None,
                 }

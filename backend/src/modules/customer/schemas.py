@@ -55,6 +55,31 @@ class Customer(CustomerBase, TimestampSchema):
 
 class CustomerCreate(CustomerBase):
     user_id: uuid.UUID | None = None
+    addresses: list["AddressCreate"] = []
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Budi Santoso",
+                "email": "budi@santoso.com",
+                "phone": "0812345678",
+                "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "meta": None,
+                "addresses": [
+                    {
+                        "label": "Rumah",
+                        "recipient_name": "Budi",
+                        "phone": "0812345678",
+                        "address": "Jalan Kemerdekaan No. 17",
+                        "city_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "sub_district_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "postal_code": "12345",
+                        "is_primary": True
+                    }
+                ]
+            }
+        }
+    }
 
 
 class CustomerUpdate(BaseModel):
@@ -63,6 +88,31 @@ class CustomerUpdate(BaseModel):
     phone: str | None = None
     meta: str | None = None
     user_id: uuid.UUID | None = None
+    addresses: list["AddressCreate"] = []
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Budi Santoso Updated",
+                "email": "budi_new@santoso.com",
+                "phone": "08123456789",
+                "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "meta": None,
+                "addresses": [
+                    {
+                        "label": "Kantor",
+                        "recipient_name": "Budi Santoso",
+                        "phone": "08123456789",
+                        "address": "Jalan Sudirman Kav. 1",
+                        "city_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "sub_district_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "postal_code": "12190",
+                        "is_primary": False
+                    }
+                ]
+            }
+        }
+    }
 
 
 class CustomerRead(CustomerBase, TimestampSchema):

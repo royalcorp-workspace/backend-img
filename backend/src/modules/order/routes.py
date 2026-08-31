@@ -5,16 +5,53 @@ from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.dependencies import AsyncSessionDep
-from ...modules.rbac.dependencies import require_permission
+from ...infrastructure.auth.dependencies import get_current_user
 from .dependencies import OrderServiceDep
 from .schemas import OrderCreate, OrderRead, OrderUpdate
+
+
+ORDER_CREATE_DIRECT_EXAMPLE = {
+    "customer_id": "123e4567-e89b-12d3-a456-426614174000",
+    "shipping_address_id": "223e4567-e89b-12d3-a456-426614174001",
+    "courier_id": "jne",
+    "payment_method": "bank_transfer",
+    "subtotal": 1250000.0,
+    "shipping_cost": 25000.0,
+    "total": 1275000.0,
+    "items": [
+        {
+            "product_id": "25043f8a-7517-4caa-a8bb-144e8e6e7a78",
+            "product_variant_id": "88043f8a-7517-4caa-a8bb-144e8e6e7a88",
+            "quantity": 1,
+            "unit_price": 1250000.0,
+            "total": 1250000.0,
+            "name": "KB GRAND X LB-17",
+            "item_notes": "Beli Langsung"
+        }
+    ]
+}
+
+ORDER_CREATE_CART_EXAMPLE = {
+    "customer_id": "123e4567-e89b-12d3-a456-426614174000",
+    "shipping_address_id": "223e4567-e89b-12d3-a456-426614174001",
+    "courier_id": "jne",
+    "payment_method": "credit_card",
+    "subtotal": 2500000.0,
+    "shipping_cost": 50000.0,
+    "total": 2550000.0,
+    "cart_item_ids": [
+        "323e4567-e89b-12d3-a456-426614174002",
+        "423e4567-e89b-12d3-a456-426614174003"
+    ]
+}
+
 
 router = APIRouter(tags=["Orders"])
 
 # Realistic example order response
 ORDER_EXAMPLE = {
     "id": "8f30c3a2-b911-4a4b-841a-e4b51a5c6d70",
-    "customer_id": "c1a3b2c3-d4e5-f6g7-h8i9-j0k1l2m3n4o5",
+    "customer_id": "123e4567-e89b-12d3-a456-426614174000",
     "status": 2,
     "payment_method": "BCAATM",
     "payment_status": 2,
@@ -29,7 +66,7 @@ ORDER_EXAMPLE = {
     "created_at": "2026-08-28T14:30:00",
     "updated_at": "2026-08-28T14:35:00",
     "customer": {
-        "id": "c1a3b2c3-d4e5-f6g7-h8i9-j0k1l2m3n4o5",
+        "id": "123e4567-e89b-12d3-a456-426614174000",
         "name": "Budi Santoso",
         "email": "budi@example.com",
         "phone": "08123456789",
@@ -48,7 +85,6 @@ ORDER_EXAMPLE = {
             "discount_nominal": 0.0,
             "discount_percent": 0.0,
             "total": 1250000.0,
-            "weight": 15,
             "name": "KB GRAND X LB-17",
             "item_notes": "Merah",
             "meta": {},
@@ -105,7 +141,7 @@ ORDER_EXAMPLE = {
 )
 async def list_orders(
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("orders:read"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     order_service: OrderServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -145,7 +181,7 @@ async def list_orders(
 async def get_order(
     order_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("orders:read"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     order_service: OrderServiceDep,
 ) -> dict[str, Any]:
     return await order_service.get_by_id(db, order_id)
@@ -162,7 +198,16 @@ async def get_order(
             "description": "Order created",
             "content": {
                 "application/json": {
-                    "example": ORDER_EXAMPLE
+                    "examples": {
+                        "Direct Purchase": {
+                            "summary": "Beli Langsung",
+                            "value": ORDER_CREATE_DIRECT_EXAMPLE
+                        },
+                        "From Cart": {
+                            "summary": "Dari Keranjang",
+                            "value": ORDER_CREATE_CART_EXAMPLE
+                        }
+                    }
                 }
             },
         },
@@ -183,7 +228,7 @@ async def get_order(
 async def create_order(
     order_in: OrderCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("orders:create"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     order_service: OrderServiceDep,
 ) -> dict[str, Any]:
     return await order_service.create(db, order_in)
@@ -225,7 +270,7 @@ async def update_order(
     order_id: UUID,
     order_in: OrderUpdate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("orders:update"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     order_service: OrderServiceDep,
 ) -> dict[str, Any]:
     return await order_service.update(db, order_id, order_in)
@@ -255,7 +300,7 @@ async def update_order(
 async def delete_order(
     order_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("orders:delete"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     order_service: OrderServiceDep,
 ) -> None:
     await order_service.delete(db, order_id)

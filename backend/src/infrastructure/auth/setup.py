@@ -55,7 +55,7 @@ auth = CRUDAuth(
         SessionTransport(
             backend="redis" if _use_redis else "memory",
             redis_url=_session_redis_url if _use_redis else None,
-            csrf=settings.CSRF_ENABLED,
+            csrf=False,
             max_sessions_per_user=settings.MAX_SESSIONS_PER_USER,
             session_timeout_minutes=settings.SESSION_TIMEOUT_MINUTES,
             cleanup_interval_minutes=settings.SESSION_CLEANUP_INTERVAL_MINUTES,

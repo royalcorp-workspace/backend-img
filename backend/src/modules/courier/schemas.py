@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..common.schemas import TimestampSchema
 
@@ -21,9 +21,17 @@ class ShippingAddressReadNested(BaseModel):
     courier_id: uuid.UUID
     sub_district_id: uuid.UUID
     type: int | None = None
+    type_name: str | None = None
     price: float
     is_active: bool
     sort_order: int
+
+    @model_validator(mode="after")
+    def set_type_name(self) -> 'ShippingAddressReadNested':
+        mapping = {1: "reguler", 2: "express", 3: "same-day"}
+        if self.type in mapping:
+            self.type_name = mapping[self.type]
+        return self
 
 
 # --- Courier Schemas ---
@@ -81,4 +89,12 @@ class ShippingAddressUpdate(BaseModel):
 
 class ShippingAddressRead(ShippingAddressBase, TimestampSchema):
     id: uuid.UUID
+    type_name: str | None = None
     courier: CourierReadNested | None = None
+
+    @model_validator(mode="after")
+    def set_type_name(self) -> 'ShippingAddressRead':
+        mapping = {1: "reguler", 2: "express", 3: "same-day"}
+        if self.type in mapping:
+            self.type_name = mapping[self.type]
+        return self
