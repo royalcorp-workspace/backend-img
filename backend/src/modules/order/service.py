@@ -9,6 +9,10 @@ from ...infrastructure.logging import get_logger
 from ..common.exceptions import ResourceNotFoundError
 from .crud import crud_orders
 from .models import Order, OrderItem
+from ..add_to_cart.models import AddToCartItem
+import datetime
+import random
+import string
 from .schemas import OrderCreate, OrderUpdate
 
 logger = get_logger()
@@ -48,13 +52,11 @@ def _order_to_dict(order: Order) -> dict[str, Any]:
                 "order_id": item.order_id,
                 "product_id": item.product_id,
                 "product_variant_id": item.product_variant_id,
-                "product_color_id": item.product_color_id,
                 "quantity": item.quantity,
                 "unit_price": item.unit_price,
                 "discount_nominal": item.discount_nominal,
                 "discount_percent": item.discount_percent,
                 "total": item.total,
-                "weight": item.weight,
                 "name": item.name,
                 "item_notes": item.item_notes,
                 "meta": item.meta,
@@ -64,13 +66,12 @@ def _order_to_dict(order: Order) -> dict[str, Any]:
                     "id": item.product.id,
                     "name": item.product.name,
                     "slug": item.product.slug,
-                    "base_price": item.product.base_price,
                 } if item.product else None,
                 "variant": {
                     "id": item.variant.id,
                     "product_id": item.variant.product_id,
                     "variant_name": item.variant.variant_name,
-                    "price": item.variant.price,
+                    "sell_price": item.variant.sell_price,
                     "sku": item.variant.sku,
                 } if item.variant else None,
             }
@@ -127,8 +128,24 @@ class OrderService:
         return _order_to_dict(order)
 
     async def create(self, db: AsyncSession, order_in: OrderCreate) -> Any:
-        order_data = order_in.model_dump(exclude={"items"})
+        order_data = order_in.model_dump(exclude={"items", "cart_item_ids", "shipping_address_id", "courier_id", "shipping_cost", "voucher_id"})
         
+        # Generate Order Number
+        now = datetime.datetime.now()
+        random_str = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        order_number = f"ORD-{now.strftime('%y%m%d')}-{random_str}"
+        order_data["order_number"] = order_number
+
+        # Map mobile fields to db fields
+        if order_in.courier_id:
+            order_data["courier_id"] = str(order_in.courier_id)
+        if order_in.shipping_cost:
+            order_data["shipping_cost"] = order_in.shipping_cost
+        if order_in.voucher_id:
+            order_data["voucher_id"] = order_in.voucher_id
+        if order_in.shipping_address_id:
+            order_data["shipping_addresses_id"] = order_in.shipping_address_id
+
         # Inject platform info into meta
         meta = order_data.get("meta") or {}
         meta["platform"] = "mobile_app"
@@ -138,10 +155,32 @@ class OrderService:
         db.add(order)
         await db.flush()
 
-        for item_in in order_in.items:
-            item_data = item_in.model_dump()
-            order_item = OrderItem(order_id=order.id, **item_data)
-            db.add(order_item)
+        # Handle Cart Flow
+        if order_in.cart_item_ids:
+            for cart_item_id in order_in.cart_item_ids:
+                cart_item = await db.scalar(select(AddToCartItem).where(AddToCartItem.id == cart_item_id))
+                if cart_item:
+                    order_item = OrderItem(
+                        order_id=order.id,
+                        product_id=cart_item.product_id,
+                        product_variant_id=cart_item.product_variant_id,
+                        quantity=cart_item.quantity,
+                        unit_price=cart_item.unit_price,
+                        discount_nominal=cart_item.discount_nominal,
+                        discount_percent=cart_item.discount_percent,
+                        total=cart_item.total,
+                        name=cart_item.name,
+                        item_notes=cart_item.item_notes,
+                        meta=cart_item.meta
+                    )
+                    db.add(order_item)
+                    await db.delete(cart_item) # Remove from cart
+        # Handle Direct Purchase Flow
+        elif order_in.items:
+            for item_in in order_in.items:
+                item_data = item_in.model_dump(exclude_unset=True)
+                order_item = OrderItem(order_id=order.id, **item_data)
+                db.add(order_item)
 
         await db.commit()
         return await self.get_by_id(db, order.id)

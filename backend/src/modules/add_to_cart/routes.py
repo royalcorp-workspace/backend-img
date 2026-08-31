@@ -6,7 +6,7 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.auth.dependencies import get_current_user
-from ...modules.rbac.dependencies import require_permission
+from ...infrastructure.auth.dependencies import get_current_user
 from .dependencies import AddToCartServiceDep
 from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartItemRead, AddToCartRead, AddToCartUpdate
 
@@ -58,7 +58,6 @@ ADD_TO_CART_EXAMPLE = {
                 "id": "12345678-1234-1234-1234-123456789016",
                 "name": "Product Name",
                 "slug": "product-name",
-                "base_price": "1000000",
             },
             "variant": None,
         }
@@ -98,7 +97,7 @@ ADD_TO_CART_EXAMPLE = {
 )
 async def list_add_to_carts(
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:read"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -134,7 +133,7 @@ async def list_add_to_carts(
 async def get_add_to_cart(
     add_to_cart_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:read"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
     return await add_to_cart_service.get_by_id(db, add_to_cart_id)
@@ -168,7 +167,7 @@ async def get_add_to_cart(
 async def create_add_to_cart(
     buffer_in: AddToCartCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:create"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
     return await add_to_cart_service.create(db, buffer_in)
@@ -206,7 +205,7 @@ async def update_add_to_cart(
     add_to_cart_id: UUID,
     buffer_in: AddToCartUpdate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
     return await add_to_cart_service.update(db, add_to_cart_id, buffer_in)
@@ -236,7 +235,7 @@ async def update_add_to_cart(
 async def delete_add_to_cart(
     add_to_cart_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:delete"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> None:
     await add_to_cart_service.delete(db, add_to_cart_id)
@@ -275,7 +274,7 @@ async def add_add_to_cart_item(
     add_to_cart_id: UUID,
     item_in: AddToCartItemCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
     return await add_to_cart_service.add_item(db, add_to_cart_id, item_in)
@@ -314,7 +313,7 @@ async def update_add_to_cart_item(
     item_id: UUID,
     item_in: AddToCartItemCreate,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> dict[str, Any]:
     return await add_to_cart_service.update_item(db, add_to_cart_id, item_id, item_in)
@@ -345,7 +344,7 @@ async def delete_add_to_cart_item(
     add_to_cart_id: UUID,
     item_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:update"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
 ) -> None:
     await add_to_cart_service.delete_item(db, add_to_cart_id, item_id)
@@ -383,7 +382,7 @@ async def checkout_add_to_cart(
     add_to_cart_id: UUID,
     checkout_in: AddToCartCheckout,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("add_to_cart:create"))],
+    _: Annotated[dict[str, Any], Depends(get_current_user)],
     add_to_cart_service: AddToCartServiceDep,
     current_user: Annotated[dict[str, Any], Depends(get_current_user)],
 ) -> dict[str, Any]:

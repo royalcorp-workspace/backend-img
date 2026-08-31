@@ -1,3 +1,4 @@
+from sqlalchemy import text
 import uuid as uuid_pkg
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -48,7 +49,23 @@ class User(Base):
     customer_type: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1", default=1)
     membership_level: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     reseller_price_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
-    deleted_at: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
     def __repr__(self) -> str:
         return f"{self.name} ({self.email})"
+
+class EmailVerification(Base):
+    __tablename__ = "email_verifications"
+
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid_pkg.uuid4,
+        init=False,
+    )
+    user_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    token: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None, server_default=text("CURRENT_TIMESTAMP"))

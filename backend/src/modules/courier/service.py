@@ -22,11 +22,15 @@ logger = get_logger()
 
 
 def _shipping_address_to_dict(addr: ShippingAddress) -> dict[str, Any]:
+    mapping = {1: "reguler", 2: "express", 3: "same-day"}
+    type_name = mapping.get(addr.type) if addr.type else None
+
     return {
         "id": addr.id,
         "courier_id": addr.courier_id,
         "sub_district_id": addr.sub_district_id,
         "type": addr.type,
+        "type_name": type_name,
         "price": addr.price,
         "is_active": addr.is_active,
         "sort_order": addr.sort_order,

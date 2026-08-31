@@ -59,3 +59,8 @@ class ShippingAddress(Base, TimestampMixin):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
 
     courier: Mapped["Courier"] = relationship("Courier", back_populates="shipping_addresses", init=False)
+
+    @property
+    def type_name(self) -> str | None:
+        mapping = {1: "reguler", 2: "express", 3: "same-day"}
+        return mapping.get(self.type) if self.type else None

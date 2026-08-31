@@ -86,4 +86,4 @@ class AddToCartItem(Base, TimestampMixin):
 
     add_to_cart: Mapped["AddToCart"] = relationship("AddToCart", back_populates="items", lazy="selectin", init=False)
     product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
-    variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False, default=None)
+    variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False)

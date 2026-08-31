@@ -50,7 +50,38 @@ class AddToCart(AddToCartBase, TimestampSchema):
 
 
 class AddToCartCreate(AddToCartBase):
-    pass
+    items: list[AddToCartItemCreate] = []
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "customer_id": "123e4567-e89b-12d3-a456-426614174000",
+                "session_id": "abc12345",
+                "customer_name": "John Doe",
+                "customer_email": "john@example.com",
+                "customer_phone": "08123456789",
+                "subtotal": 1000000.0,
+                "tax": 0.0,
+                "discount": 0.0,
+                "total": 1000000.0,
+                "meta": {"source": "mobile_app"},
+                "items": [
+                    {
+                        "product_id": "223e4567-e89b-12d3-a456-426614174000",
+                        "product_variant_id": "323e4567-e89b-12d3-a456-426614174000",
+                        "name": "KB GRAND X LB-17",
+                        "quantity": 1,
+                        "unit_price": 1000000.0,
+                        "total": 1000000.0,
+                        "discount_nominal": 0.0,
+                        "discount_percent": 0.0,
+                        "item_notes": "Tolong packing aman",
+                        "meta": {}
+                    }
+                ]
+            }
+        }
+    }
 
 
 class AddToCartUpdate(BaseModel):
