@@ -34,18 +34,18 @@ class TierService:
 
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Retrieve all tiers with pagination."""
-        return await crud_tiers.get_multi(db=db, offset=skip, limit=limit, schema_to_select=TierRead, is_deleted=False)
+        return await crud_tiers.get_multi(db=db, offset=skip, limit=limit, schema_to_select=TierRead, deleted=False)
 
     async def get_by_id(self, tier_id: int, db: AsyncSession) -> dict[str, Any]:
         """Retrieve a tier by ID."""
-        tier = await crud_tiers.get(db=db, id=tier_id, schema_to_select=TierRead, is_deleted=False)
+        tier = await crud_tiers.get(db=db, id=tier_id, schema_to_select=TierRead, deleted=False)
         if not tier:
             raise TierNotFoundError(f"Tier with ID {tier_id} not found")
         return tier
 
     async def get_by_name(self, name: str, db: AsyncSession) -> dict[str, Any]:
         """Retrieve a tier by name."""
-        tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, is_deleted=False)
+        tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, deleted=False)
         if not tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
         return tier
@@ -65,7 +65,7 @@ class TierService:
 
     async def delete(self, name: str, db: AsyncSession) -> None:
         """Soft delete a tier."""
-        existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, is_deleted=False)
+        existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, deleted=False)
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
         await crud_tiers.delete(db=db, name=name)

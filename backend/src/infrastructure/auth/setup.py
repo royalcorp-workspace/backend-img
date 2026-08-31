@@ -35,7 +35,7 @@ _bearer_transport = BearerTransport(
 # The existing 'users' table uses a different naming convention than the User model.
 # Map crudauth logical fields to the actual database column names.
 _user_column_map = {
-    "hashed_password": "hashed_password",
+    "hashed_password": "password",
     "is_superuser": "is_superuser",
 }
 

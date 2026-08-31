@@ -59,7 +59,7 @@ async def get_current_user(
     if principal is None:
         raise credentials_exception
 
-    user = await crud_users.get(db=db, id=principal.user_id, is_deleted=False)
+    user = await crud_users.get(db=db, id=principal.user_id, deleted=False)
 
     if user is None:
         raise credentials_exception
@@ -75,7 +75,7 @@ async def get_optional_user(
     if principal is None:
         return None
 
-    return await crud_users.get(db=db, id=principal.user_id, is_deleted=False)
+    return await crud_users.get(db=db, id=principal.user_id, deleted=False)
 
 
 async def get_current_superuser(
