@@ -2,7 +2,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import ResourceNotFoundError
@@ -61,11 +61,12 @@ class CustomerService:
             for addr_in in customer_in.addresses:
                 addr_data = addr_in.model_dump()
                 addr_data["user_id"] = user_id
+                addr_data["customer_id"] = customer.get("id") if isinstance(customer, dict) else customer.id
                 address_obj = Address(**addr_data)
                 db.add(address_obj)
         
         await db.commit()
-        return await self.get_by_id(db, customer["id"])
+        return await self.get_by_id(db, customer.get("id") if isinstance(customer, dict) else customer.id)
 
     async def update(self, db: AsyncSession, customer_id: UUID, customer_in: CustomerUpdate) -> dict[str, Any]:
         customer = await crud_customers.get(db=db, id=customer_id, deleted=False)
@@ -83,18 +84,47 @@ class CustomerService:
             for addr_in in customer_in.addresses:
                 addr_data = addr_in.model_dump()
                 addr_data["user_id"] = user_id
+                addr_data["customer_id"] = customer_id
                 address_obj = Address(**addr_data)
                 db.add(address_obj)
                 
         await db.commit()
         return await self.get_by_id(db, customer_id)
 
-    async def delete(self, db: AsyncSession, customer_id: UUID) -> None:
+
+
+
+    async def set_primary_address(self, db: AsyncSession, customer_id: UUID, address_id: UUID) -> dict[str, Any]:
         customer = await crud_customers.get(db=db, id=customer_id, deleted=False)
         if not customer:
             raise ResourceNotFoundError(f"Customer with ID {customer_id} not found")
-        await crud_customers.delete(db=db, id=customer_id)
+
+        user_id = customer.get("user_id")
+        if not user_id:
+            raise ResourceNotFoundError(f"Customer with ID {customer_id} has no associated user account")
+
+        # Verify address exists for this user
+        result = await db.execute(select(Address).where(Address.id == address_id, Address.user_id == user_id, Address.deleted.is_(False)))
+        address = result.scalar_one_or_none()
+        if not address:
+            raise ResourceNotFoundError(f"Address with ID {address_id} not found for this customer")
+
+        # Reset all addresses for this user to is_primary = False
+        await db.execute(
+            update(Address)
+            .where(Address.user_id == user_id, Address.deleted.is_(False))
+            .values(is_primary=False)
+        )
+
+        # Set selected address to primary
+        await db.execute(
+            update(Address)
+            .where(Address.id == address_id)
+            .values(is_primary=True)
+        )
+
         await db.commit()
+        return await self.get_by_id(db, customer_id)
 
 
 customer_service = CustomerService()

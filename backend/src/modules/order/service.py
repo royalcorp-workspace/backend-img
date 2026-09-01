@@ -13,7 +13,7 @@ from ..add_to_cart.models import AddToCartItem
 import datetime
 import random
 import string
-from .schemas import OrderCreate, OrderUpdate
+from .schemas import OrderCreate
 
 logger = get_logger()
 
@@ -138,7 +138,7 @@ class OrderService:
 
         # Map mobile fields to db fields
         if order_in.courier_id:
-            order_data["courier_id"] = str(order_in.courier_id)
+            order_data["courier_id"] = order_in.courier_id
         if order_in.shipping_cost:
             order_data["shipping_cost"] = order_in.shipping_cost
         if order_in.voucher_id:
@@ -185,22 +185,3 @@ class OrderService:
         await db.commit()
         return await self.get_by_id(db, order.id)
 
-    async def update(self, db: AsyncSession, order_id: UUID, order_in: OrderUpdate) -> Any:
-        order = await crud_orders.get(db=db, id=order_id, deleted=False)
-        if not order:
-            raise ResourceNotFoundError(f"Order with ID {order_id} not found")
-
-        update_data = order_in.model_dump(exclude_unset=True)
-        await crud_orders.update(db=db, db_obj=order, obj_in=update_data)
-        await db.commit()
-        return await self.get_by_id(db, order_id)
-
-    async def delete(self, db: AsyncSession, order_id: UUID) -> None:
-        order = await crud_orders.get(db=db, id=order_id, deleted=False)
-        if not order:
-            raise ResourceNotFoundError(f"Order with ID {order_id} not found")
-        await crud_orders.delete(db=db, id=order_id)
-        await db.commit()
-
-
-order_service = OrderService()
