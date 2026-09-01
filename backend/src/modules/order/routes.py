@@ -7,7 +7,7 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.auth.dependencies import get_current_user
 from .dependencies import OrderServiceDep
-from .schemas import OrderCreate, OrderRead, OrderUpdate
+from .schemas import OrderCreate, OrderRead
 
 
 ORDER_CREATE_DIRECT_EXAMPLE = {
@@ -234,46 +234,6 @@ async def create_order(
     return await order_service.create(db, order_in)
 
 
-@router.put(
-    "/{order_id}",
-    response_model=OrderRead,
-    summary="Update Order",
-    description="Update an existing order.",
-    responses={
-        200: {
-            "description": "Order updated",
-            "content": {
-                "application/json": {
-                    "example": ORDER_EXAMPLE
-                }
-            },
-        },
-        400: {
-            "description": "Invalid data",
-            "content": {"application/json": {"example": {"detail": "Invalid data", "support_id": "a1b2c3d4"}}},
-        },
-        401: {
-            "description": "Not authenticated",
-            "content": {"application/json": {"example": {"detail": "Not authenticated", "support_id": "a1b2c3d4"}}},
-        },
-        403: {
-            "description": "Not authorized",
-            "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
-        },
-        404: {
-            "description": "Order not found",
-            "content": {"application/json": {"example": {"detail": "Order not found", "support_id": "a1b2c3d4"}}},
-        },
-    },
-)
-async def update_order(
-    order_id: UUID,
-    order_in: OrderUpdate,
-    db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(get_current_user)],
-    order_service: OrderServiceDep,
-) -> dict[str, Any]:
-    return await order_service.update(db, order_id, order_in)
 
 
 @router.delete(

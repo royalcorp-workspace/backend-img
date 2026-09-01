@@ -300,31 +300,23 @@ async def update_customer(
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 
-@router.delete(
-    "/{customer_id}",
-    status_code=204,
-    summary="Delete Customer",
-    description="Soft-delete a customer.",
+
+
+@router.patch(
+    "/{customer_id}/addresses/{address_id}/primary",
+    response_model=CustomerRead,
+    summary="Set Primary Address",
+    description="Set a specific address as primary for a customer. Other addresses will be set to non-primary.",
     responses={
-        204: {"description": "Customer deleted successfully"},
-        401: {
-            "description": "Not authenticated",
-            "content": {"application/json": {"example": {"detail": "Not authenticated", "support_id": "a1b2c3d4"}}},
-        },
-        403: {
-            "description": "Not authorized",
-            "content": {"application/json": {"example": {"detail": "Not authorized", "support_id": "a1b2c3d4"}}},
-        },
-        404: {
-            "description": "Customer not found",
-            "content": {"application/json": {"example": {"detail": "Customer not found", "support_id": "a1b2c3d4"}}},
-        },
+        200: {"description": "Customer with updated primary address"},
+        404: {"description": "Customer or address not found"},
     },
 )
-async def delete_customer(
+async def set_primary_address(
     customer_id: UUID,
+    address_id: UUID,
     db: AsyncSessionDep,
-    _: Annotated[dict[str, Any], Depends(require_permission("customers:delete"))],
+    _: Annotated[dict[str, Any], Depends(require_permission("customers:update"))],
     customer_service: CustomerServiceDep,
-) -> None:
-    await customer_service.delete(db, customer_id)
+) -> dict[str, Any]:
+    return await customer_service.set_primary_address(db, customer_id, address_id)

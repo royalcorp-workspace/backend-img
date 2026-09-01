@@ -729,11 +729,13 @@ async def register_user(
         user_id=created_user.id
     )
     db.add(new_customer)
+    await db.flush()
     
     # Create Address Record if provided
     if data.address_detail:
         new_address = Address(
             user_id=created_user.id,
+            customer_id=new_customer.id,
             city_id=data.address_detail.city_id,
             label=data.address_detail.label,
             recipient_name=data.address_detail.recipient_name,
@@ -744,8 +746,7 @@ async def register_user(
             is_primary=data.address_detail.is_primary
         )
         db.add(new_address)
-        
-    await db.flush()
+        await db.flush()
     
     # Create EmailVerification Token
     token = secrets.token_urlsafe(32)

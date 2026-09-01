@@ -36,7 +36,7 @@ class Order(Base, TimestampMixin):
     order_number: Mapped[str | None] = mapped_column(String(255), default=None)
     voucher_id: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("vouchers.id"), default=None)
     transaction_fee: Mapped[float | None] = mapped_column(default=0.0)
-    courier_id: Mapped[str | None] = mapped_column(String(255), default=None)
+    courier_id: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     voucher_nominal: Mapped[float | None] = mapped_column(default=0.0)
     shipping_cost: Mapped[float | None] = mapped_column(default=0.0)
     shipping_cost_subsidy: Mapped[float | None] = mapped_column(default=0.0)
@@ -92,4 +92,4 @@ class OrderItem(Base, TimestampMixin):
 
     order: Mapped["Order"] = relationship("Order", back_populates="items", lazy="selectin", init=False)
     product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
-    variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False, default=None)
+    variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False)
