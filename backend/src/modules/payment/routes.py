@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..order.models import Order
-from sqlalchemy import select
+from sqlalchemy import select, func, String
 
 router = APIRouter(prefix="/payment", tags=["Payment"])
 
@@ -109,6 +109,15 @@ async def espay_checkout(
     data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
     signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
     
+    from ...modules.payment_method.models import PaymentMethod
+    pm_stmt = select(PaymentMethod).where(PaymentMethod.code == request.payment_method_code)
+    pm_result = await db.execute(pm_stmt)
+    payment_method = pm_result.scalar_one_or_none()
+    
+    bank_code = request.payment_method_code
+    if payment_method and payment_method.bank_info and isinstance(payment_method.bank_info, dict):
+        bank_code = payment_method.bank_info.get("bank_code", request.payment_method_code)
+
     payload = {
         'rq_uuid': rq_uuid,
         'rq_datetime': rq_datetime,
@@ -120,7 +129,7 @@ async def espay_checkout(
         'remark2': 'Customer',
         'remark3': '',
         'update': 'N',
-        'bank_code': request.payment_method_code,
+        'bank_code': bank_code,
         'va_expired': 1440,
         'signature': signature,
     }
@@ -202,4 +211,7 @@ async def check_payment_status(
         "status": order.status,
         "is_paid": is_paid
     }
+
+
+
 
