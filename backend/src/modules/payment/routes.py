@@ -30,6 +30,8 @@ class EspayCheckoutResponse(BaseModel):
     success: bool
     payment: dict[str, Any]
     redirect_url: str
+    va_number: str | None = None
+    va_expired: str | None = None
     
     class Config:
         json_schema_extra = {
@@ -44,7 +46,9 @@ class EspayCheckoutResponse(BaseModel):
                     "reference": "PAY-1724808000",
                     "payment_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM"
                 },
-                "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM"
+                "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
+                "va_number": "1234567890123456",
+                "va_expired": "2026-09-02 10:00:00"
             }
         }
 
@@ -67,7 +71,9 @@ class EspayCheckoutResponse(BaseModel):
                             "reference": "PAY-1724808000",
                             "payment_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM"
                         },
-                        "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM"
+                        "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
+                        "va_number": "1234567890123456",
+                        "va_expired": "2026-09-02 10:00:00"
                     }
                 }
             }
@@ -78,6 +84,10 @@ async def espay_checkout(
     request: EspayCheckoutRequest,
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
+    from ...infrastructure.config.settings import settings
+    import httpx
+    import datetime
+    
     stmt = select(Order).where(Order.id == request.order_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
@@ -85,24 +95,67 @@ async def espay_checkout(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
         
-    amount = float(order.total)
-    reference = f"PAY-{int(time.time())}"
+    amount = f"{float(order.total):.2f}"
     
-    payment_data = {
-        "id": str(uuid.uuid4()),
-        "order_id": str(order.id),
-        "payment_method": request.payment_method_code,
-        "amount": amount,
-        "status": "pending",
-        "reference": reference,
-        "payment_url": f"https://sandbox-api.espay.id/checkout/{str(order.id)}?bank={request.payment_method_code}"
+    base_url = settings.ESPAY_BASE_URL.rstrip('/')
+    espay_url = base_url.replace('/rest/merchant', '/rest/merchantpg') + '/sendinvoice'
+    
+    signature_key = settings.ESPAY_SIGNATURE_KEY
+    comm_code = settings.ESPAY_MERCHANT_KEY
+    rq_uuid = str(uuid.uuid4())
+    rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    espay_order_id = order.order_number.replace("-", "") if order.order_number else str(order.id).replace("-", "")
+    
+    data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
+    signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
+    
+    payload = {
+        'rq_uuid': rq_uuid,
+        'rq_datetime': rq_datetime,
+        'order_id': espay_order_id,
+        'amount': amount,
+        'ccy': 'IDR',
+        'comm_code': comm_code,
+        'remark1': '00000000000',
+        'remark2': 'Customer',
+        'remark3': '',
+        'update': 'N',
+        'bank_code': request.payment_method_code,
+        'va_expired': 1440,
+        'signature': signature,
     }
     
-    return {
-        "success": True,
-        "payment": payment_data,
-        "redirect_url": payment_data["payment_url"]
-    }
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(espay_url, data=payload)
+            payment_data = response.json()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to communicate with Espay: {str(e)}")
+            
+    if response.status_code == 200 and payment_data.get('error_code') == '0000':
+        va_number = payment_data.get('va_number')
+        
+        # Determine expiration timestamp based on rq_datetime + 1440 mins
+        expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
+        va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Update order in DB
+        order.payment_status = 1
+        meta = order.meta or {}
+        meta['espay_reference'] = payment_data.get('reference', '')
+        meta['va_number'] = va_number
+        order.meta = meta
+        await db.commit()
+        
+        return {
+            "success": True,
+            "payment": payment_data,
+            "redirect_url": payment_data.get("payment_url", ""),
+            "va_number": va_number,
+            "va_expired": va_expired
+        }
+    else:
+        raise HTTPException(status_code=400, detail=f"Espay Error: {payment_data.get('error_desc', 'Unknown')}")
 
 @router.get(
     "/espay/status/{order_id}",
