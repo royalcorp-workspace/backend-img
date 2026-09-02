@@ -19,24 +19,40 @@ from .schemas import OrderCreate
 
 logger = get_logger()
 
+# Order status constants
+STATUS_DRAFT = 0
+STATUS_PENDING_APPROVAL = 1
+STATUS_CONFIRMED = 2
+STATUS_PROCESSING = 3
+STATUS_SHIPPED = 4
+STATUS_DELIVERED = 5
+STATUS_CANCELLED = 6
+STATUS_RETURNED = 7
+
+# Payment status constants
+PAYMENT_UNPAID = 0
+PAYMENT_PAID = 1
+PAYMENT_FAILED = 2
+PAYMENT_REFUNDED = 3
+PAYMENT_PARTIAL = 4
+
 ORDER_STATUS_MAP: dict[int, str] = {
-    0: "Menunggu Pembayaran",
-    1: "Diproses",
-    2: "Sudah Dibayar",
-    3: "Sedang Dikirim",
-    4: "Selesai",
-    5: "Gagal Transaksi",
-    6: "Dibatalkan",
-    7: "Void",
+    STATUS_DRAFT: "Draft",
+    STATUS_PENDING_APPROVAL: "Menunggu Pembayaran",
+    STATUS_CONFIRMED: "Dikonfirmasi",
+    STATUS_PROCESSING: "Diproses",
+    STATUS_SHIPPED: "Dikirim",
+    STATUS_DELIVERED: "Selesai",
+    STATUS_CANCELLED: "Dibatalkan",
+    STATUS_RETURNED: "Dikembalikan",
 }
 
 PAYMENT_STATUS_MAP: dict[int, str] = {
-    0: "Belum Dibayar",
-    1: "Menunggu Pembayaran",
-    2: "Lunas",
-    3: "Gagal Transaksi",
-    4: "Kedaluwarsa",
-    5: "Dibatalkan",
+    PAYMENT_UNPAID: "Belum Bayar",
+    PAYMENT_PAID: "Sudah Bayar",
+    PAYMENT_FAILED: "Gagal",
+    PAYMENT_REFUNDED: "Dikembalikan",
+    PAYMENT_PARTIAL: "Dibayar Sebagian",
 }
 
 

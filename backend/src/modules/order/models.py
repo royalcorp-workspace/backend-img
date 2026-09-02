@@ -16,6 +16,21 @@ if TYPE_CHECKING:
 class Order(Base, TimestampMixin):
     __tablename__ = "orders"
 
+    STATUS_DRAFT = 0
+    STATUS_PENDING_APPROVAL = 1
+    STATUS_CONFIRMED = 2
+    STATUS_PROCESSING = 3
+    STATUS_SHIPPED = 4
+    STATUS_DELIVERED = 5
+    STATUS_CANCELLED = 6
+    STATUS_RETURNED = 7
+
+    PAYMENT_UNPAID = 0
+    PAYMENT_PAID = 1
+    PAYMENT_FAILED = 2
+    PAYMENT_REFUNDED = 3
+    PAYMENT_PARTIAL = 4
+
     id: Mapped[uuid_pkg.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
