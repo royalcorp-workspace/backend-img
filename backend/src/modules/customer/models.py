@@ -43,6 +43,7 @@ class Address(Base, TimestampMixin):
     phone: Mapped[str] = mapped_column(String(20), nullable=False)
     address: Mapped[str] = mapped_column(Text, nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True, default=None)
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True, default=None)
     sub_district_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     postal_code: Mapped[str | None] = mapped_column(String(10), default=None)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)

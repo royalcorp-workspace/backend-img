@@ -55,19 +55,11 @@ class OrderCreate(OrderBase):
     cart_item_ids: list[UUID] | None = None
     # Additional shipping/address data for mobile
     shipping_address_id: UUID | None = None
-    courier_id: str | None = None
+    courier_id: UUID | None = None
     shipping_cost: float | None = 0.0
     voucher_id: UUID | None = None
 
 
-class OrderUpdate(BaseModel):
-    customer_id: UUID | None = None
-    status: int | None = None
-    payment_method: str | None = None
-    payment_status: int | None = 0
-    subtotal: float | None = None
-    tax: float | None = None
-    discount: float | None = None
     total: float | None = None
     notes: str | None = None
     meta: dict[str, Any] | None = None

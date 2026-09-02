@@ -365,11 +365,20 @@ class TaskiqSettings(BaseSettings):
 class JDESettings(BaseSettings):
     """JDE Integration configuration settings."""
 
-    JDE_BASE_URL: str = config("JDE_BASE_URL", default="http://172.16.8.22:8000")
-    JDE_API_KEY: str = config("JDE_API_KEY", default="royal-jde-integration-2026")
+    JDE_BASE_URL: str = config("JDE_BASE_URL", default="")
+    JDE_API_KEY: str = config("JDE_API_KEY", default="")
 
 
-class Settings(
+
+class EspaySettings(BaseSettings):
+    ESPAY_MERCHANT_KEY: str = config("ESPAY_MERCHANT_KEY", default="")
+    ESPAY_API_KEY: str = config("ESPAY_API_KEY", default="")
+    ESPAY_SIGNATURE_KEY: str = config("ESPAY_SIGNATURE_KEY", default="")
+    ESPAY_MODE: str = config("ESPAY_MODE", default="development")
+    ESPAY_BASE_URL: str = config("ESPAY_BASE_URL", default="https://sandbox")
+    ESPAY_PASSWORD: str = config("ESPAY_PASSWORD", default="")
+
+class Settings(EspaySettings, 
     EnvironmentSettings,
     DatabaseSettings,
     CacheSettings,

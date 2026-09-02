@@ -2,137 +2,25 @@ from typing import Any, Annotated
 import uuid
 import hashlib
 import time
+import datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, func, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...infrastructure.config.settings import settings
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..order.models import Order
 from ..payment_method.models import PaymentMethod
+from ..payment_method.service import (
+    PAYMENT_METHOD_TYPES,
+    resolve_payment_type_name,
+    resolve_cara_bayar,
+)
 from ..add_to_cart.models import AddToCart
 
 router = APIRouter(prefix="/payment", tags=["Payment"])
-
-ESPAY_SIGNATURE_KEY = "dummy_signature_key"  # Replace with actual from settings
-
-# Payment method type mappings (1: VA, 2: Merchant, etc.)
-PAYMENT_METHOD_TYPES: dict[int, str] = {
-    1: "VA",
-    2: "Merchant",
-    3: "E-Wallet",
-    4: "Credit Card",
-    5: "Bank Transfer",
-    6: "QRIS",
-    7: "Direct Debit",
-    8: "Paylater",
-    9: "COD",
-}
-
-
-def resolve_payment_type_name(type_id: int | None) -> str | None:
-    """Resolve payment method type ID to a human-readable name/label."""
-    if type_id is None:
-        return None
-    return PAYMENT_METHOD_TYPES.get(type_id, f"Type {type_id}")
-
-
-def resolve_cara_bayar(
-    pm: PaymentMethod,
-    bank_name: str,
-    type_name: str | None,
-) -> list[str]:
-    """
-    Resolve payment instructions (cara bayar) from bank_info if available,
-    or provide structured instructions based on payment method type.
-    """
-    bank_info = pm.bank_info if isinstance(pm.bank_info, dict) else {}
-
-    # 1. Custom instructions from DB bank_info if available
-    for key in ("cara_bayar", "instructions", "how_to_pay", "steps", "payment_instructions"):
-        if key in bank_info and bank_info[key]:
-            val = bank_info[key]
-            if isinstance(val, list):
-                return [str(v) for v in val]
-            elif isinstance(val, str):
-                return [s.strip() for s in val.split("\n") if s.strip()]
-            return [str(val)]
-
-    # 2. Dynamic fallback instructions based on payment method type
-    if pm.type == 1:  # VA (Virtual Account)
-        return [
-            f"Buka aplikasi Mobile Banking {bank_name} atau kunjungi ATM {bank_name} terdekat.",
-            f"Pilih menu Transfer / Pembayaran > Virtual Account ({pm.name}).",
-            "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-            "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-            "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-            "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-        ]
-    elif pm.type == 2:  # Merchant / Retail (e.g. Indomaret, Alfamart)
-        return [
-            f"Kunjungi gerai {pm.name} terdekat (misal: Alfamart / Indomaret).",
-            "Sampaikan kepada kasir bahwa Anda ingin melakukan pembayaran tagihan merchant.",
-            "Tunjukkan kode pembayaran / nomor referensi kepada kasir.",
-            "Lakukan pembayaran tunai / non-tunai sesuai total tagihan.",
-            "Terima dan simpan struk pembayaran sebagai bukti transaksi yang sah.",
-        ]
-    elif pm.type == 3:  # E-Wallet (e.g. GoPay, OVO, ShopeePay, DANA)
-        return [
-            f"Buka aplikasi {pm.name} pada smartphone Anda.",
-            "Pilih menu Bayar / Scan QR.",
-            "Pastikan nama penerima dan nominal tagihan sesuai.",
-            "Konfirmasi pembayaran dan masukkan PIN keamanan e-wallet Anda.",
-            "Transaksi selesai dan status pesanan akan otomatis terverifikasi.",
-        ]
-    elif pm.type == 4:  # Credit Card
-        return [
-            "Masukkan informasi kartu kredit (Nomor Kartu, Masa Berlaku MM/YY, dan CVV).",
-            "Klik tombol Proses Pembayaran.",
-            "Masukkan kode OTP 3D-Secure yang dikirimkan ke nomor ponsel Anda.",
-            "Tunggu notifikasi konfirmasi transaksi berhasil.",
-        ]
-    elif pm.type == 5:  # Bank Transfer
-        return [
-            f"Lakukan transfer ke rekening bank {bank_name} yang tertera.",
-            "Pastikan nominal transfer sesuai persis hingga 3 digit terakhir.",
-            "Simpan bukti transfer dan sistem akan otomatis memverifikasi pembayaran Anda.",
-        ]
-    elif pm.type == 6:  # QRIS
-        return [
-            "Buka aplikasi e-wallet atau mobile banking yang mendukung QRIS.",
-            "Pilih menu Scan / Pindai QR.",
-            "Arahkan kamera ke kode QRIS pembayaran.",
-            "Periksa nominal dan nama merchant, lalu klik Bayar.",
-            "Masukkan PIN untuk menyelesaikan transaksi.",
-        ]
-    elif pm.type == 7:  # Direct Debit
-        return [
-            f"Pilih akun Direct Debit {bank_name} Anda.",
-            "Konfirmasi detail transaksi dan nomor ponsel terdaftar.",
-            "Masukkan kode OTP yang dikirimkan via SMS.",
-            "Pembayaran selesai seketika.",
-        ]
-    elif pm.type == 8:  # Paylater
-        return [
-            f"Login ke akun {pm.name} Anda.",
-            "Pilih skema cicilan / periode pembayaran yang diinginkan.",
-            "Periksa rincian tagihan bulanan dan bunga (jika ada).",
-            "Konfirmasi transaksi dengan PIN atau OTP.",
-        ]
-    elif pm.type == 9:  # COD (Cash On Delivery)
-        return [
-            "Siapkan uang tunai sesuai total nominal belanjaan.",
-            "Bayarkan uang tunai kepada kurir saat pesanan tiba di alamat tujuan.",
-            "Periksa kondisi paket sebelum kurir meninggalkan lokasi.",
-        ]
-    else:
-        return [
-            f"Pilih metode pembayaran {pm.name}.",
-            "Ikuti petunjuk pembayaran yang muncul pada halaman checkout.",
-            "Selesaikan transaksi sebelum batas waktu yang ditentukan.",
-            "Simpan bukti pembayaran Anda.",
-        ]
 
 
 # Schemas
@@ -169,7 +57,7 @@ class PaymentMethodDetail(BaseModel):
 
 
 class EspayPaymentData(BaseModel):
-    id: str = Field(..., example="1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p6")
+    id: str | None = Field(None, example="1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p6")
     order_id: str = Field(..., example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     order_number: str | None = Field(None, example="ORD-20260828-001")
     payment_method: str = Field(..., example="BCAATM")
@@ -179,15 +67,17 @@ class EspayPaymentData(BaseModel):
     amount: float = Field(..., example=2500000.00)
     status: str = Field(..., example="pending")
     reference: str = Field(..., example="PAY-1724808000")
-    payment_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/8f30c3a2-b911-4a4b-841a-e4b51a5c6d70?bank=BCAATM")
+    payment_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM")
     cara_bayar: list[str] | None = Field(None)
     payment_method_detail: PaymentMethodDetail | None = Field(None)
 
 
 class EspayCheckoutResponse(BaseModel):
     success: bool = Field(..., example=True)
-    payment: EspayPaymentData
-    redirect_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/8f30c3a2-b911-4a4b-841a-e4b51a5c6d70?bank=BCAATM")
+    payment: dict[str, Any] | EspayPaymentData
+    redirect_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM")
+    va_number: str | None = Field(None, example="1234567890123456")
+    va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
 
     class Config:
         json_schema_extra = {
@@ -204,7 +94,7 @@ class EspayCheckoutResponse(BaseModel):
                     "amount": 2500000.00,
                     "status": "pending",
                     "reference": "PAY-1724808000",
-                    "payment_url": "https://sandbox-api.espay.id/checkout/8f30c3a2-b911-4a4b-841a-e4b51a5c6d70?bank=BCAATM",
+                    "payment_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
                     "cara_bayar": [
                         "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
                         "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
@@ -243,7 +133,9 @@ class EspayCheckoutResponse(BaseModel):
                         ],
                     },
                 },
-                "redirect_url": "https://sandbox-api.espay.id/checkout/8f30c3a2-b911-4a4b-841a-e4b51a5c6d70?bank=BCAATM",
+                "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
+                "va_number": "1234567890123456",
+                "va_expired": "2026-09-02 10:00:00",
             }
         }
 
@@ -261,7 +153,7 @@ ESPAY_CHECKOUT_EXAMPLE = {
         "amount": 2500000.00,
         "status": "pending",
         "reference": "PAY-1724808000",
-        "payment_url": "https://sandbox-api.espay.id/checkout/8f30c3a2-b911-4a4b-841a-e4b51a5c6d70?bank=BCAATM",
+        "payment_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
         "cara_bayar": [
             "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
             "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
@@ -300,7 +192,9 @@ ESPAY_CHECKOUT_EXAMPLE = {
             ],
         },
     },
-    "redirect_url": "https://sandbox-api.espay.id/checkout/8f30c3a2-b911-4a4b-841a-e4b51a5c6d70?bank=BCAATM",
+    "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
+    "va_number": "1234567890123456",
+    "va_expired": "2026-09-02 10:00:00",
 }
 
 
@@ -308,7 +202,7 @@ ESPAY_CHECKOUT_EXAMPLE = {
     "/espay/checkout",
     response_model=EspayCheckoutResponse,
     summary="Espay Checkout",
-    description="Initialize payment checkout via Espay with payment method details, instructions, bank name, and type.",
+    description="Initialize payment checkout via Espay with payment method details, instructions, bank name, type, and optional cart cleanup.",
     responses={
         200: {
             "description": "Successful checkout initialization",
@@ -328,25 +222,25 @@ async def espay_checkout(
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
     # 1. Fetch Order
-    stmt_order = select(Order).where(Order.id == request.order_id)
-    result_order = await db.execute(stmt_order)
-    order = result_order.scalar_one_or_none()
+    stmt = select(Order).where(Order.id == request.order_id)
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
 
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
     # 2. Fetch Payment Method by code
-    stmt_pm = select(PaymentMethod).where(
+    pm_stmt = select(PaymentMethod).where(
         PaymentMethod.code == request.payment_method_code,
         PaymentMethod.deleted == False,
     )
-    result_pm = await db.execute(stmt_pm)
-    payment_method = result_pm.scalar_one_or_none()
+    pm_result = await db.execute(pm_stmt)
+    payment_method = pm_result.scalar_one_or_none()
 
     if not payment_method:
-        stmt_pm_any = select(PaymentMethod).where(PaymentMethod.code == request.payment_method_code)
-        result_pm_any = await db.execute(stmt_pm_any)
-        payment_method = result_pm_any.scalar_one_or_none()
+        pm_stmt_any = select(PaymentMethod).where(PaymentMethod.code == request.payment_method_code)
+        pm_res_any = await db.execute(pm_stmt_any)
+        payment_method = pm_res_any.scalar_one_or_none()
 
     if not payment_method:
         raise HTTPException(
@@ -354,87 +248,138 @@ async def espay_checkout(
             detail=f"Payment method '{request.payment_method_code}' not found",
         )
 
-    # 3. Update Order's selected payment method
-    order.payment_method = payment_method.code
-
-    # 4. Remove AddToCart if specific add_to_cart_id is provided in request or order.meta
-    target_cart_ids: list[uuid.UUID] = []
-    if request.add_to_cart_id:
-        target_cart_ids.append(request.add_to_cart_id)
-
-    if isinstance(order.meta, dict):
-        cart_id_meta = order.meta.get("add_to_cart_id") or order.meta.get("cart_id")
-        if cart_id_meta:
-            try:
-                cart_uuid = uuid.UUID(str(cart_id_meta))
-                if cart_uuid not in target_cart_ids:
-                    target_cart_ids.append(cart_uuid)
-            except (ValueError, TypeError):
-                pass
-
-    for cart_id in target_cart_ids:
-        stmt_cart = select(AddToCart).where(AddToCart.id == cart_id)
-        res_cart = await db.execute(stmt_cart)
-        cart = res_cart.scalar_one_or_none()
-        if cart:
-            await db.delete(cart)
-
-    await db.commit()
-
-    # 5. Resolve details (bank_name, type_name, cara_bayar)
+    # 3. Resolve details (bank_name, bank_code, type_name, cara_bayar)
     bank_info = payment_method.bank_info if isinstance(payment_method.bank_info, dict) else {}
     bank_name = (
         bank_info.get("bank_name")
         or bank_info.get("bank")
         or payment_method.name
     )
+    bank_code = bank_info.get("bank_code", request.payment_method_code)
     type_name = resolve_payment_type_name(payment_method.type)
     cara_bayar = resolve_cara_bayar(payment_method, bank_name, type_name)
 
-    amount = float(order.total)
-    reference = f"PAY-{int(time.time())}"
-    payment_url = f"https://sandbox-api.espay.id/checkout/{str(order.id)}?bank={payment_method.code}"
+    # 4. Prepare Espay API call
+    amount = f"{float(order.total):.2f}"
+    base_url = settings.ESPAY_BASE_URL.rstrip('/')
+    espay_url = base_url.replace('/rest/merchant', '/rest/merchantpg') + '/sendinvoice'
 
-    payment_method_detail = {
-        "id": payment_method.id,
-        "code": payment_method.code,
-        "name": payment_method.name,
-        "type": payment_method.type,
-        "type_name": type_name,
-        "bank_name": bank_name,
-        "provider": payment_method.provider,
-        "image": payment_method.image,
-        "has_charge": payment_method.has_charge,
-        "charge_type": payment_method.charge_type,
-        "charge_value": payment_method.charge_value,
-        "charge_bearer": payment_method.charge_bearer,
-        "minimum_amount": payment_method.minimum_amount,
-        "maximum_amount": payment_method.maximum_amount,
-        "bank_info": payment_method.bank_info,
-        "cara_bayar": cara_bayar,
+    signature_key = settings.ESPAY_SIGNATURE_KEY
+    comm_code = settings.ESPAY_MERCHANT_KEY
+    rq_uuid = str(uuid.uuid4())
+    rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    espay_order_id = order.order_number.replace("-", "") if order.order_number else str(order.id).replace("-", "")
+
+    data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
+    signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
+
+    payload = {
+        'rq_uuid': rq_uuid,
+        'rq_datetime': rq_datetime,
+        'order_id': espay_order_id,
+        'amount': amount,
+        'ccy': 'IDR',
+        'comm_code': comm_code,
+        'remark1': '00000000000',
+        'remark2': 'Customer',
+        'remark3': '',
+        'update': 'N',
+        'bank_code': bank_code,
+        'va_expired': 1440,
+        'signature': signature,
     }
 
-    payment_data = {
-        "id": str(uuid.uuid4()),
-        "order_id": str(order.id),
-        "order_number": order.order_number,
-        "payment_method": payment_method.code,
-        "bank_name": bank_name,
-        "type": payment_method.type,
-        "type_name": type_name,
-        "amount": amount,
-        "status": "pending",
-        "reference": reference,
-        "payment_url": payment_url,
-        "cara_bayar": cara_bayar,
-        "payment_method_detail": payment_method_detail,
-    }
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(espay_url, data=payload)
+            payment_data = response.json()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to communicate with Espay: {str(e)}")
 
-    return {
-        "success": True,
-        "payment": payment_data,
-        "redirect_url": payment_url,
-    }
+    if response.status_code == 200 and payment_data.get('error_code') == '0000':
+        va_number = payment_data.get('va_number')
+
+        # Determine expiration timestamp based on rq_datetime + 1440 mins
+        expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
+        va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Update order in DB
+        order.payment_method = payment_method.code
+        order.payment_status = 1
+        meta = order.meta or {}
+        meta['espay_reference'] = payment_data.get('reference', '')
+        meta['va_number'] = va_number
+        order.meta = meta
+
+        # Remove AddToCart if specific add_to_cart_id is provided in request or order.meta
+        target_cart_ids: list[uuid.UUID] = []
+        if request.add_to_cart_id:
+            target_cart_ids.append(request.add_to_cart_id)
+
+        if isinstance(order.meta, dict):
+            cart_id_meta = order.meta.get("add_to_cart_id") or order.meta.get("cart_id")
+            if cart_id_meta:
+                try:
+                    cart_uuid = uuid.UUID(str(cart_id_meta))
+                    if cart_uuid not in target_cart_ids:
+                        target_cart_ids.append(cart_uuid)
+                except (ValueError, TypeError):
+                    pass
+
+        for cart_id in target_cart_ids:
+            stmt_cart = select(AddToCart).where(AddToCart.id == cart_id)
+            res_cart = await db.execute(stmt_cart)
+            cart = res_cart.scalar_one_or_none()
+            if cart:
+                await db.delete(cart)
+
+        await db.commit()
+
+        payment_method_detail = {
+            "id": payment_method.id,
+            "code": payment_method.code,
+            "name": payment_method.name,
+            "type": payment_method.type,
+            "type_name": type_name,
+            "bank_name": bank_name,
+            "provider": payment_method.provider,
+            "image": payment_method.image,
+            "has_charge": payment_method.has_charge,
+            "charge_type": payment_method.charge_type,
+            "charge_value": payment_method.charge_value,
+            "charge_bearer": payment_method.charge_bearer,
+            "minimum_amount": payment_method.minimum_amount,
+            "maximum_amount": payment_method.maximum_amount,
+            "bank_info": payment_method.bank_info,
+            "cara_bayar": cara_bayar,
+        }
+
+        # Enrich payment response with additional requested fields
+        payment_result = dict(payment_data)
+        payment_result.update({
+            "order_id": str(order.id),
+            "order_number": order.order_number,
+            "payment_method": payment_method.code,
+            "bank_name": bank_name,
+            "type": payment_method.type,
+            "type_name": type_name,
+            "amount": float(order.total),
+            "status": "pending",
+            "reference": payment_data.get("reference", f"PAY-{int(time.time())}"),
+            "payment_url": payment_data.get("payment_url", ""),
+            "cara_bayar": cara_bayar,
+            "payment_method_detail": payment_method_detail,
+        })
+
+        return {
+            "success": True,
+            "payment": payment_result,
+            "redirect_url": payment_data.get("payment_url", ""),
+            "va_number": va_number,
+            "va_expired": va_expired,
+        }
+    else:
+        raise HTTPException(status_code=400, detail=f"Espay Error: {payment_data.get('error_desc', 'Unknown')}")
 
 
 @router.get(
@@ -482,4 +427,8 @@ async def check_payment_status(
         "status": order.status,
         "is_paid": is_paid,
     }
+
+
+
+
 
