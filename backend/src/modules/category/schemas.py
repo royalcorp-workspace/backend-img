@@ -11,6 +11,10 @@ class CategoryBase(BaseModel):
     slug: Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")]
     parent_id: UUID | None = None
     description: str | None = None
+    image: str | None = None
+    banner_web: str | None = None
+    banner_mobile: str | None = None
+    tagline: str | None = None
     sort_order: int | None = 0
     status: bool = True
 
@@ -28,6 +32,10 @@ class CategoryUpdate(BaseModel):
     slug: str | None = None
     parent_id: UUID | None = None
     description: str | None = None
+    image: str | None = None
+    banner_web: str | None = None
+    banner_mobile: str | None = None
+    tagline: str | None = None
     sort_order: int | None = None
     status: bool | None = None
 

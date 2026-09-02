@@ -10,6 +10,7 @@ from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
 
 if TYPE_CHECKING:
+    from ..category.models import Category
     from ..review.models import Review
 
 
@@ -47,6 +48,10 @@ class Product(Base, TimestampMixin):
     )
     colors: Mapped[list["ProductColor"]] = relationship(
         "ProductColor", back_populates="product", lazy="selectin", cascade="all, delete-orphan", init=False
+    )
+    brand: Mapped["Brand | None"] = relationship("Brand", foreign_keys=[brand_id], lazy="selectin", init=False)
+    category: Mapped["Category | None"] = relationship(
+        "Category", foreign_keys=[category_id], lazy="selectin", init=False
     )
     price_product_settings: Mapped[list["PriceProductSetting"]] = relationship(
         "PriceProductSetting",
@@ -242,6 +247,11 @@ class Brand(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    logo: Mapped[str | None] = mapped_column(String(500), default=None)
+    banner_web: Mapped[str | None] = mapped_column(String(500), default=None)
+    banner_mobile: Mapped[str | None] = mapped_column(String(500), default=None)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[int] = mapped_column(Integer, default=1)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -275,14 +285,13 @@ class ProductBundling(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, default=None)
     price: Mapped[float] = mapped_column(default=0.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    start_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
-    end_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
+    discount_type: Mapped[str | None] = mapped_column(String(255), default="percentage")
+    banner_image: Mapped[str | None] = mapped_column(String(255), default=None)
+    image_url: Mapped[str | None] = mapped_column(String(500), default=None)
     creator: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     editor: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-    discount_type: Mapped[str | None] = mapped_column(String(50), default=None)
-    banner: Mapped[str | None] = mapped_column(String(255), default=None)
-    image_url: Mapped[str | None] = mapped_column(String(255), default=None)
 
     items: Mapped[list["ProductBundlingItem"]] = relationship(
         "ProductBundlingItem", back_populates="bundling", lazy="selectin", cascade="all, delete-orphan", init=False
@@ -298,9 +307,13 @@ class ProductBundlingItem(Base, TimestampMixin):
         default=uuid.uuid4,
         init=False,
     )
-    bundling_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products_bundling.id"), nullable=False)
-    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), nullable=False)
-    variant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("product_variants.id"), default=None)
+    bundling_id: Mapped[uuid.UUID] = mapped_column(
+        "product_bundling_id", UUID(as_uuid=True), ForeignKey("products_bundling.id"), nullable=False
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("product_variants.id"), default=None
+    )
     quantity: Mapped[int] = mapped_column(Integer, default=1)
 
     bundling: Mapped["ProductBundling"] = relationship("ProductBundling", back_populates="items", init=False)

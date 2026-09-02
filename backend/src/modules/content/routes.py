@@ -73,21 +73,21 @@ async def list_warranty_claims(db: AsyncSessionDep, _: Annotated[dict[str, Any],
 async def get_warranty_claim(item_id: uuid.UUID, db: AsyncSessionDep, _: Annotated[dict[str, Any], Depends(require_permission('content:read'))], service: ContentServiceDep) -> dict[str, Any]:
     return await service.get_warranty_claim_by_id(db, item_id)
 from sqlalchemy import select
-from .models import Banner, HomepageSection, Event, Notification
+from .models import Banner, Event, HomepageSection, Notification
+from .schemas import HomepageSectionRead
 
-@router.get('/banners', summary='Get Active Banners', description='Get active banners for mobile app')
+@router.get('/banners', summary='Get Active Banners', description='Get active banners for mobile app', tags=['Content: App Layout'])
 async def get_banners(db: AsyncSessionDep):
     stmt = select(Banner).where(Banner.deleted == False, Banner.is_active == True).order_by(Banner.sort_order.asc())
     result = await db.execute(stmt)
     return {'success': True, 'data': result.scalars().all()}
 
-@router.get('/homepages', summary='Get Homepage Layout', description='Get active homepage layout config')
-async def get_homepage_sections(db: AsyncSessionDep):
-    stmt = select(HomepageSection).where(HomepageSection.is_visible == True).order_by(HomepageSection.sort_order.asc())
-    result = await db.execute(stmt)
-    return {'success': True, 'data': result.scalars().all()}
+@router.get('/homepages', response_model=dict[str, Any], summary='Get Homepage Layout', description='Get active homepage layout with populated items for each section', tags=['Content: App Layout'])
+async def get_homepage_sections(db: AsyncSessionDep, service: ContentServiceDep):
+    sections = await service.get_homepage_sections_with_items(db)
+    return {'success': True, 'data': sections}
 
-@router.get('/events/active', summary='Get Active Events', description='Get active events with their popups')
+@router.get('/events/active', summary='Get Active Events', description='Get active events with their popups', tags=['Content: App Layout'])
 async def get_active_events(db: AsyncSessionDep):
     from datetime import datetime
     now = datetime.now()
@@ -95,7 +95,7 @@ async def get_active_events(db: AsyncSessionDep):
     result = await db.execute(stmt)
     return {'success': True, 'data': result.scalars().unique().all()}
 
-@router.get('/notifications', summary='Get Broadcast Notifications', description='Get latest notifications')
+@router.get('/notifications', summary='Get Broadcast Notifications', description='Get latest notifications', tags=['Content: App Layout'])
 async def get_notifications(db: AsyncSessionDep):
     stmt = select(Notification).where(Notification.is_broadcast == True).order_by(Notification.created_at.desc()).limit(20)
     result = await db.execute(stmt)

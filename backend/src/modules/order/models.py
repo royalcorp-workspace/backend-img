@@ -1,9 +1,9 @@
 import uuid as uuid_pkg
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
@@ -93,3 +93,28 @@ class OrderItem(Base, TimestampMixin):
     order: Mapped["Order"] = relationship("Order", back_populates="items", lazy="selectin", init=False)
     product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
     variant: Mapped["ProductVariant | None"] = relationship("ProductVariant", lazy="selectin", init=False)
+
+
+class VoidOrder(Base, TimestampMixin):
+    __tablename__ = "void_orders"
+
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid_pkg.uuid4,
+        init=False,
+    )
+    order_number: Mapped[str | None] = mapped_column(String(255), default=None, index=True)
+    customer_id: Mapped[uuid_pkg.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        default=None,
+        index=True,
+    )
+    order_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    order_items_data: Mapped[list[Any] | dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    void_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    voided_at: Mapped[Any | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+OrderVoid = VoidOrder

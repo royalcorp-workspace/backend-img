@@ -15,8 +15,8 @@ PAYMENT_METHOD_EXAMPLE = {
     'id': '019f5933-08c8-7082-b1cd-7185cff32192',
     'code': 'bca_va',
     'name': 'BCA Virtual Account',
-    'type': 1,
-    'type_name': 'VA',
+    'type': 2,
+    'type_name': 'Virtual Account',
     'bank_name': 'BCA',
     'provider': 'Espay',
     'image': 'https://example.com/bca.png',
@@ -33,6 +33,14 @@ PAYMENT_METHOD_EXAMPLE = {
         'bank_code': '014',
         'account_name': 'PT ROYAL CORP',
     },
+    'instructions': [
+        'Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.',
+        'Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).',
+        'Masukkan nomor Virtual Account tujuan pembayaran yang tertera.',
+        'Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.',
+        'Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.',
+        'Simpan bukti pembayaran atau struk transfer sebagai bukti sah.'
+    ],
     'cara_bayar': [
         'Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.',
         'Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).',

@@ -32,6 +32,7 @@ class PaymentMethod(Base, TimestampMixin):
     sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
     status: Mapped[int | None] = mapped_column(Integer, default=1)
     bank_info: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    instructions: Mapped[dict[str, Any] | list[Any] | Any | None] = mapped_column(JSONB, default=None)
     creator: Mapped[str | None] = mapped_column(String(100), default=None)
     editor: Mapped[str | None] = mapped_column(String(100), default=None)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
