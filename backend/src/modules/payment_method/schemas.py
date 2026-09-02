@@ -10,6 +10,8 @@ class PaymentMethodBase(BaseModel):
     code: Annotated[str, Field(min_length=1, max_length=50)]
     name: Annotated[str, Field(min_length=1, max_length=100)]
     type: int | None = None
+    type_name: str | None = None
+    bank_name: str | None = None
     provider: str | None = None
     image: str | None = None
     has_charge: bool = False
@@ -21,6 +23,7 @@ class PaymentMethodBase(BaseModel):
     sort_order: int | None = 0
     status: int | None = 1
     bank_info: Any | None = None
+    cara_bayar: list[str] | None = None
 
 
 class PaymentMethod(PaymentMethodBase, TimestampSchema):
@@ -35,6 +38,8 @@ class PaymentMethodUpdate(BaseModel):
     code: str | None = None
     name: str | None = None
     type: int | None = None
+    type_name: str | None = None
+    bank_name: str | None = None
     provider: str | None = None
     image: str | None = None
     has_charge: bool | None = None
@@ -46,6 +51,7 @@ class PaymentMethodUpdate(BaseModel):
     sort_order: int | None = None
     status: int | None = None
     bank_info: Any | None = None
+    cara_bayar: list[str] | None = None
 
 
 class PaymentMethodRead(PaymentMethodBase, TimestampSchema):
