@@ -38,7 +38,7 @@ PAYMENT_PARTIAL = 4
 
 ORDER_STATUS_MAP: dict[int, str] = {
     STATUS_DRAFT: "Draft",
-    STATUS_PENDING_APPROVAL: "Menunggu Persetujuan",
+    STATUS_PENDING_APPROVAL: "Menunggu Pembayaran",
     STATUS_CONFIRMED: "Dikonfirmasi",
     STATUS_PROCESSING: "Diproses",
     STATUS_SHIPPED: "Dikirim",
