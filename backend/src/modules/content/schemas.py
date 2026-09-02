@@ -250,3 +250,15 @@ class WarrantyClaimUpdate(BaseModel):
 
 class WarrantyClaimRead(WarrantyClaimBase, TimestampSchema):
     id: uuid.UUID
+
+
+# --- Homepage Sections with Items ---
+class HomepageSectionRead(BaseModel):
+    id: uuid.UUID | str | None = None
+    section_key: str
+    title: str | None = None
+    sort_order: int = 0
+    is_visible: bool = True
+    meta: dict[str, Any] | None = None
+    items: list[Any] = []
+

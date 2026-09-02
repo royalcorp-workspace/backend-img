@@ -23,6 +23,7 @@ class PaymentMethodBase(BaseModel):
     sort_order: int | None = 0
     status: int | None = 1
     bank_info: Any | None = None
+    instructions: Any | None = None
     cara_bayar: list[str] | None = None
 
 
@@ -51,6 +52,7 @@ class PaymentMethodUpdate(BaseModel):
     sort_order: int | None = None
     status: int | None = None
     bank_info: Any | None = None
+    instructions: Any | None = None
     cara_bayar: list[str] | None = None
 
 

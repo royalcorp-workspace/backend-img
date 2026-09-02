@@ -41,8 +41,8 @@ class PaymentMethodDetail(BaseModel):
     id: uuid.UUID | str | None = Field(None, example="019f5933-08c8-7082-b1cd-7185cff32192")
     code: str = Field(..., example="BCAATM")
     name: str = Field(..., example="BCA Virtual Account")
-    type: int | None = Field(None, example=1)
-    type_name: str | None = Field(None, example="VA")
+    type: int | None = Field(None, example=2)
+    type_name: str | None = Field(None, example="Virtual Account")
     bank_name: str | None = Field(None, example="BCA")
     provider: str | None = Field(None, example="Espay")
     image: str | None = Field(None, example="https://example.com/bca.png")
@@ -53,6 +53,7 @@ class PaymentMethodDetail(BaseModel):
     minimum_amount: float | None = Field(0.0, example=10000.0)
     maximum_amount: float | None = Field(None, example=None)
     bank_info: dict[str, Any] | list[Any] | Any | None = Field(None)
+    instructions: dict[str, Any] | list[Any] | Any | None = Field(None)
     cara_bayar: list[str] | None = Field(None)
 
 
@@ -62,8 +63,8 @@ class EspayPaymentData(BaseModel):
     order_number: str | None = Field(None, example="ORD-20260828-001")
     payment_method: str = Field(..., example="BCAATM")
     bank_name: str | None = Field(None, example="BCA")
-    type: int | None = Field(None, example=1)
-    type_name: str | None = Field(None, example="VA")
+    type: int | None = Field(None, example=2)
+    type_name: str | None = Field(None, example="Virtual Account")
     amount: float = Field(..., example=2500000.00)
     status: str = Field(..., example="pending")
     reference: str = Field(..., example="PAY-1724808000")
@@ -89,8 +90,8 @@ class EspayCheckoutResponse(BaseModel):
                     "order_number": "ORD-20260828-001",
                     "payment_method": "BCAATM",
                     "bank_name": "BCA",
-                    "type": 1,
-                    "type_name": "VA",
+                    "type": 2,
+                    "type_name": "Virtual Account",
                     "amount": 2500000.00,
                     "status": "pending",
                     "reference": "PAY-1724808000",
@@ -107,8 +108,8 @@ class EspayCheckoutResponse(BaseModel):
                         "id": "019f5933-08c8-7082-b1cd-7185cff32192",
                         "code": "BCAATM",
                         "name": "BCA Virtual Account",
-                        "type": 1,
-                        "type_name": "VA",
+                        "type": 2,
+                        "type_name": "Virtual Account",
                         "bank_name": "BCA",
                         "provider": "Espay",
                         "image": "https://example.com/bca.png",
@@ -123,6 +124,14 @@ class EspayCheckoutResponse(BaseModel):
                             "bank_code": "014",
                             "account_name": "PT ROYAL CORP",
                         },
+                        "instructions": [
+                            "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
+                            "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
+                            "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
+                            "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
+                            "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
+                            "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
+                        ],
                         "cara_bayar": [
                             "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
                             "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
@@ -148,8 +157,8 @@ ESPAY_CHECKOUT_EXAMPLE = {
         "order_number": "ORD-20260828-001",
         "payment_method": "BCAATM",
         "bank_name": "BCA",
-        "type": 1,
-        "type_name": "VA",
+        "type": 2,
+        "type_name": "Virtual Account",
         "amount": 2500000.00,
         "status": "pending",
         "reference": "PAY-1724808000",
@@ -166,8 +175,8 @@ ESPAY_CHECKOUT_EXAMPLE = {
             "id": "019f5933-08c8-7082-b1cd-7185cff32192",
             "code": "BCAATM",
             "name": "BCA Virtual Account",
-            "type": 1,
-            "type_name": "VA",
+            "type": 2,
+            "type_name": "Virtual Account",
             "bank_name": "BCA",
             "provider": "Espay",
             "image": "https://example.com/bca.png",
@@ -182,6 +191,14 @@ ESPAY_CHECKOUT_EXAMPLE = {
                 "bank_code": "014",
                 "account_name": "PT ROYAL CORP",
             },
+            "instructions": [
+                "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
+                "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
+                "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
+                "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
+                "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
+                "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
+            ],
             "cara_bayar": [
                 "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
                 "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
@@ -257,7 +274,13 @@ async def espay_checkout(
     )
     bank_code = bank_info.get("bank_code", request.payment_method_code)
     type_name = resolve_payment_type_name(payment_method.type)
-    cara_bayar = resolve_cara_bayar(payment_method, bank_name, type_name)
+    cara_bayar = resolve_cara_bayar(
+        payment_method,
+        pm_type=payment_method.type,
+        pm_name=payment_method.name,
+        bank_name=bank_name,
+        instructions=payment_method.instructions,
+    )
 
     # 4. Prepare Espay API call
     amount = f"{float(order.total):.2f}"
@@ -351,6 +374,7 @@ async def espay_checkout(
             "minimum_amount": payment_method.minimum_amount,
             "maximum_amount": payment_method.maximum_amount,
             "bank_info": payment_method.bank_info,
+            "instructions": payment_method.instructions,
             "cara_bayar": cara_bayar,
         }
 
