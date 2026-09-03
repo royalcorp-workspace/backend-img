@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from ...infrastructure.logging import get_logger
 from ..category.models import Category
 from ..common.exceptions import ResourceExistsError, ResourceNotFoundError
+from ..common.utils import get_media_url
 from ..product.models import (
     Brand,
     PriceProductSetting,
@@ -121,15 +122,16 @@ class ContentService:
                             pps_label = f"{round(discount_percent)}%"
                         break
 
-            thumb = prod.thumbnail
+            thumb = get_media_url(prod.thumbnail)
             if not thumb and prod.images:
-                thumb = prod.images[0].image
+                thumb = get_media_url(prod.images[0].image)
 
             return {
                 "id": prod.id,
                 "name": prod.name,
                 "slug": prod.slug,
                 "thumbnail_url": thumb,
+                "thumbnail": thumb,
                 "min_price": min_price,
                 "max_price": max_price,
                 "original_price": min_price,
@@ -149,7 +151,7 @@ class ContentService:
                     else None
                 ),
                 "images": [
-                    {"id": img.id, "image_url": img.image, "alt_text": img.alt_text}
+                    {"id": img.id, "image": get_media_url(img.image), "image_url": get_media_url(img.image), "alt_text": img.alt_text}
                     for img in (prod.images or [])
                 ],
                 "variants": [
@@ -190,10 +192,10 @@ class ContentService:
                 "id": c.id,
                 "name": c.name,
                 "slug": c.slug,
-                "image": c.image,
-                "banner_web": getattr(c, "banner_web", None),
-                "banner_mobile": getattr(c, "banner_mobile", None),
-                "banner": getattr(c, "banner_web", None) or getattr(c, "banner_mobile", None),
+                "image": get_media_url(c.image),
+                "banner_web": get_media_url(getattr(c, "banner_web", None)),
+                "banner_mobile": get_media_url(getattr(c, "banner_mobile", None)),
+                "banner": get_media_url(getattr(c, "banner_web", None) or getattr(c, "banner_mobile", None)),
                 "tagline": c.tagline,
                 "description": c.description,
                 "products_count": p_count,
@@ -215,9 +217,9 @@ class ContentService:
                 "id": b.id,
                 "name": b.name,
                 "slug": b.slug,
-                "logo": getattr(b, "logo", None),
-                "banner_web": getattr(b, "banner_web", None),
-                "banner_mobile": getattr(b, "banner_mobile", None),
+                "logo": get_media_url(getattr(b, "logo", None)),
+                "banner_web": get_media_url(getattr(b, "banner_web", None)),
+                "banner_mobile": get_media_url(getattr(b, "banner_mobile", None)),
                 "is_featured": b.is_featured,
                 "status": b.status,
             }
@@ -291,10 +293,10 @@ class ContentService:
             if total_original > bundle_price and total_original > 0:
                 discount_percent = round(((total_original - bundle_price) / total_original) * 100.0)
 
-            thumb = getattr(bundle, "banner_image", None) or bundle.image_url
+            thumb = get_media_url(getattr(bundle, "banner_image", None) or bundle.image_url)
             if not thumb and bundle.items and bundle.items[0].product:
                 p = bundle.items[0].product
-                thumb = p.thumbnail or (p.images[0].image if p.images else None)
+                thumb = get_media_url(p.thumbnail or (p.images[0].image if p.images else None))
 
             formatted_bundles.append({
                 "id": bundle.id,
@@ -306,8 +308,8 @@ class ContentService:
                 "total_original": total_original,
                 "discount_percent": discount_percent,
                 "thumbnail_url": thumb,
-                "banner_image": getattr(bundle, "banner_image", None),
-                "image_url": bundle.image_url,
+                "banner_image": get_media_url(getattr(bundle, "banner_image", None)),
+                "image_url": get_media_url(bundle.image_url),
                 "items": [
                     {
                         "id": bi.id,
@@ -353,8 +355,8 @@ class ContentService:
                 "id": b.id,
                 "title": b.title,
                 "link_url": b.link_url,
-                "image_web_url": b.image_web_url,
-                "image_mobile_url": b.image_mobile_url or b.image_web_url,
+                "image_web_url": get_media_url(b.image_web_url),
+                "image_mobile_url": get_media_url(b.image_mobile_url or b.image_web_url),
                 "target_type": b.target_type,
                 "target_id": b.target_id,
                 "type": b.type,
@@ -382,12 +384,12 @@ class ContentService:
                 "title": ev.title,
                 "slug": ev.slug,
                 "description": ev.description,
-                "banner_image": ev.banner_image,
+                "banner_image": get_media_url(ev.banner_image),
                 "popups": [
                     {
                         "id": pop.id,
                         "title": pop.title,
-                        "image_url": pop.image_url,
+                        "image_url": get_media_url(pop.image_url),
                         "link_url": pop.link_url,
                         "button_text": pop.button_text,
                     }

@@ -9,8 +9,9 @@ from ..product.schemas import ProductRead, ProductVariantRead
 
 
 class AddToCartItemBase(BaseModel):
-    product_id: UUID
+    product_id: UUID | None = None
     product_variant_id: UUID | None = None
+    sku: str | None = None
     name: str | None = None
     quantity: int = 1
     unit_price: float = 0.0

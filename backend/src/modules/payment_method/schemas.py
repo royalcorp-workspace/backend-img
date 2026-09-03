@@ -1,9 +1,10 @@
 import uuid
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..common.schemas import TimestampSchema
+from ..common.utils import get_media_url
 
 
 class PaymentMethodBase(BaseModel):
@@ -17,6 +18,11 @@ class PaymentMethodBase(BaseModel):
     has_charge: bool = False
     charge_type: int | None = None
     charge_value: float | None = 0.0
+
+    @field_validator("image", mode="before")
+    @classmethod
+    def format_payment_image(cls, v: Any) -> Any:
+        return get_media_url(v)
     charge_bearer: str | None = None
     minimum_amount: float | None = 0.0
     maximum_amount: float | None = None

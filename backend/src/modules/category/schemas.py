@@ -1,9 +1,10 @@
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..common.schemas import TimestampSchema
+from ..common.utils import get_media_url
 
 
 class CategoryBase(BaseModel):
@@ -17,6 +18,11 @@ class CategoryBase(BaseModel):
     tagline: str | None = None
     sort_order: int | None = 0
     status: bool = True
+
+    @field_validator("image", "banner_web", "banner_mobile", mode="before")
+    @classmethod
+    def format_category_images(cls, v: Any) -> Any:
+        return get_media_url(v)
 
 
 class Category(CategoryBase, TimestampSchema):
