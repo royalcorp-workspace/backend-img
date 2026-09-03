@@ -73,14 +73,22 @@ async def list_warranty_claims(db: AsyncSessionDep, _: Annotated[dict[str, Any],
 async def get_warranty_claim(item_id: uuid.UUID, db: AsyncSessionDep, _: Annotated[dict[str, Any], Depends(require_permission('content:read'))], service: ContentServiceDep) -> dict[str, Any]:
     return await service.get_warranty_claim_by_id(db, item_id)
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from .models import Banner, Event, HomepageSection, Notification
 from .schemas import HomepageSectionRead
+from ..common.utils import get_media_url
 
 @router.get('/banners', summary='Get Active Banners', description='Get active banners for mobile app', tags=['Content: App Layout'])
 async def get_banners(db: AsyncSessionDep):
     stmt = select(Banner).where(Banner.deleted == False, Banner.is_active == True).order_by(Banner.sort_order.asc())
     result = await db.execute(stmt)
-    return {'success': True, 'data': result.scalars().all()}
+    banners = result.scalars().all()
+    for b in banners:
+        if b.image_web_url:
+            b.image_web_url = get_media_url(b.image_web_url)
+        if b.image_mobile_url:
+            b.image_mobile_url = get_media_url(b.image_mobile_url)
+    return {'success': True, 'data': banners}
 
 @router.get('/homepages', response_model=dict[str, Any], summary='Get Homepage Layout', description='Get active homepage layout with populated items for each section', tags=['Content: App Layout'])
 async def get_homepage_sections(db: AsyncSessionDep, service: ContentServiceDep):
@@ -91,9 +99,16 @@ async def get_homepage_sections(db: AsyncSessionDep, service: ContentServiceDep)
 async def get_active_events(db: AsyncSessionDep):
     from datetime import datetime
     now = datetime.now()
-    stmt = select(Event).where(Event.deleted == False, Event.is_active == True, Event.start_date <= now, Event.end_date >= now)
+    stmt = select(Event).options(selectinload(Event.popups)).where(Event.deleted == False, Event.is_active == True, Event.start_date <= now, Event.end_date >= now)
     result = await db.execute(stmt)
-    return {'success': True, 'data': result.scalars().unique().all()}
+    events = result.scalars().unique().all()
+    for ev in events:
+        if ev.banner_image:
+            ev.banner_image = get_media_url(ev.banner_image)
+        for pop in (getattr(ev, "popups", []) or []):
+            if pop.image_url:
+                pop.image_url = get_media_url(pop.image_url)
+    return {'success': True, 'data': events}
 
 @router.get('/notifications', summary='Get Broadcast Notifications', description='Get latest notifications', tags=['Content: App Layout'])
 async def get_notifications(db: AsyncSessionDep):

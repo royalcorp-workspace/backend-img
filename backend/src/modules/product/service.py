@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import ResourceExistsError, ResourceNotFoundError
+from ..common.utils import get_media_url
 from .crud import (
     crud_colors,
     crud_images,
@@ -26,12 +27,14 @@ logger = get_logger()
 
 
 def _product_to_dict(product: Product) -> dict[str, Any]:
+    thumb_url = get_media_url(product.thumbnail)
     return {
         "id": product.id,
         "name": product.name,
         "slug": product.slug,
         "category_id": product.category_id,
-        "thumbnail": product.thumbnail,
+        "thumbnail": thumb_url,
+        "thumbnail_url": thumb_url,
         "alt_text": product.alt_text,
         "short_description": product.short_description,
         "description": product.description,
@@ -48,7 +51,8 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
             {
                 "id": img.id,
                 "product_id": img.product_id,
-                "image": img.image,
+                "image": get_media_url(img.image),
+                "image_url": get_media_url(img.image),
                 "alt_text": img.alt_text,
                 "variant_id": img.variant_id,
                 "created_at": img.created_at,
@@ -102,7 +106,7 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "user_email": r.user_email,
                 "rating": r.rating,
                 "text": r.text,
-                "image_url": r.image_url,
+                "image_url": get_media_url(r.image_url),
                 "is_approved": r.is_approved,
                 "is_published": r.is_published,
                 "report_count": r.report_count,
@@ -117,7 +121,8 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "id": s.id,
                 "name": s.name,
                 "slug": s.slug,
-                "thumbnail": s.thumbnail,
+                "thumbnail": get_media_url(s.thumbnail),
+                "thumbnail_url": get_media_url(s.thumbnail),
                 "alt_text": s.alt_text,
             }
             for s in (getattr(product, "suggestions", []) or [])
@@ -159,7 +164,7 @@ def _price_setting_item_to_dict(item: PriceProductSettingItem) -> dict[str, Any]
         "max_discount": pps.max_discount,
         "start_date": pps.start_date.isoformat() if pps.start_date else None,
         "end_date": pps.end_date.isoformat() if pps.end_date else None,
-        "image_url": pps.image_url,
+        "image_url": get_media_url(pps.image_url),
         "is_active": pps.is_active,
         "is_featured": pps.is_featured,
         "sort_order": pps.sort_order,

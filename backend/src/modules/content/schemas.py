@@ -2,9 +2,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from ..common.schemas import TimestampSchema
+from ..common.utils import get_media_url
 
 
 # --- About Us ---
@@ -24,6 +25,11 @@ class AboutUsBase(BaseModel):
     social_media: dict[str, Any] | None = None
     is_active: bool = True
     sort_order: int = 0
+
+    @field_validator("logo", "cover_image", mode="before")
+    @classmethod
+    def format_about_us_media(cls, v: Any) -> Any:
+        return get_media_url(v)
 
 
 class AboutUsCreate(AboutUsBase):
@@ -66,6 +72,11 @@ class BlogPostBase(BaseModel):
     sort_order: int = 0
     meta_title: str | None = None
     meta_description: str | None = None
+
+    @field_validator("featured_image", mode="before")
+    @classmethod
+    def format_blog_media(cls, v: Any) -> Any:
+        return get_media_url(v)
 
 
 class BlogPostCreate(BlogPostBase):
@@ -127,6 +138,11 @@ class HowToReturnBase(BaseModel):
     sort_order: int = 0
     meta_title: str | None = None
     meta_description: str | None = None
+
+    @field_validator("featured_image", mode="before")
+    @classmethod
+    def format_return_media(cls, v: Any) -> Any:
+        return get_media_url(v)
 
 
 class HowToReturnCreate(HowToReturnBase):
@@ -228,6 +244,11 @@ class WarrantyClaimBase(BaseModel):
     sort_order: int = 0
     meta_title: str | None = None
     meta_description: str | None = None
+
+    @field_validator("featured_image", mode="before")
+    @classmethod
+    def format_warranty_media(cls, v: Any) -> Any:
+        return get_media_url(v)
 
 
 class WarrantyClaimCreate(WarrantyClaimBase):

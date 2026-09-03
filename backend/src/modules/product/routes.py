@@ -107,12 +107,19 @@ async def get_product(product_id: UUID, db: AsyncSessionDep, current_user: Annot
 from sqlalchemy import select
 from .models import ProductBundling
 
+from ..common.utils import get_media_url
+
 @router.get('/bundlings', response_model=dict, summary='List Active Product Bundlings', description='Get all active product bundlings with their items.')
 async def get_bundlings(db: AsyncSessionDep):
     try:
         stmt = select(ProductBundling).where(ProductBundling.deleted == False, ProductBundling.is_active == True)
         result = await db.execute(stmt)
         bundlings = result.scalars().all()
+        for b in bundlings:
+            if b.image_url:
+                b.image_url = get_media_url(b.image_url)
+            if b.banner_image:
+                b.banner_image = get_media_url(b.banner_image)
         return {'success': True, 'data': bundlings}
     except Exception as e:
         logger.error(f'Error fetching bundlings: {str(e)}', exc_info=True)

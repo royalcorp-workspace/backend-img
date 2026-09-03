@@ -1,9 +1,10 @@
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..common.schemas import TimestampSchema
+from ..common.utils import get_media_url
 
 
 class ReviewBase(BaseModel):
@@ -17,6 +18,11 @@ class ReviewBase(BaseModel):
     is_approved: bool = False
     is_published: bool = False
     report_count: int | None = 0
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def format_review_image(cls, v: Any) -> Any:
+        return get_media_url(v)
 
 
 class Review(ReviewBase, TimestampSchema):
