@@ -4,9 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
+from ...infrastructure.auth.dependencies import get_current_user
 from ...infrastructure.dependencies import AsyncSessionDep
-from ...infrastructure.auth.dependencies import get_current_user
-from ...infrastructure.auth.dependencies import get_current_user
 from .dependencies import AddToCartServiceDep
 from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartItemRead, AddToCartRead, AddToCartUpdate
 

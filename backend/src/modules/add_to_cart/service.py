@@ -10,11 +10,42 @@ from ..common.exceptions import ResourceNotFoundError
 from ..customer.models import Customer
 from ..order.models import Order, OrderItem
 from ..product.models import Product, ProductVariant
-from .crud import crud_add_to_cart_items, crud_add_to_carts
-from .models import AddToCart, AddToCartItem, AddToCartItem
+from .models import AddToCart, AddToCartItem
 from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartUpdate
 
 logger = get_logger()
+
+
+def _item_to_dict(item: AddToCartItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "add_to_cart_id": item.add_to_cart_id,
+        "product_id": item.product_id,
+        "product_variant_id": item.product_variant_id,
+        "sku": item.variant.sku if item.variant else None,
+        "name": item.name,
+        "quantity": item.quantity,
+        "unit_price": item.unit_price,
+        "total": item.total,
+        "discount_nominal": item.discount_nominal,
+        "discount_percent": item.discount_percent,
+        "item_notes": item.item_notes,
+        "meta": item.meta,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "product": {
+            "id": item.product.id,
+            "name": item.product.name,
+            "slug": item.product.slug,
+        } if item.product else None,
+        "variant": {
+            "id": item.variant.id,
+            "product_id": item.variant.product_id,
+            "variant_name": item.variant.variant_name,
+            "sell_price": item.variant.sell_price,
+            "sku": item.variant.sku,
+        } if item.variant else None,
+    }
 
 
 def _add_to_cart_to_dict(add_to_cart: AddToCart) -> dict[str, Any]:
@@ -45,34 +76,7 @@ def _add_to_cart_to_dict(add_to_cart: AddToCart) -> dict[str, Any]:
             "deleted": add_to_cart.customer.deleted,
         } if add_to_cart.customer else None,
         "items": [
-            {
-                "id": item.id,
-                "add_to_cart_id": item.add_to_cart_id,
-                "product_id": item.product_id,
-                "product_variant_id": item.product_variant_id,
-                "name": item.name,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "total": item.total,
-                "discount_nominal": item.discount_nominal,
-                "discount_percent": item.discount_percent,
-                "item_notes": item.item_notes,
-                "meta": item.meta,
-                "created_at": item.created_at,
-                "updated_at": item.updated_at,
-                "product": {
-                    "id": item.product.id,
-                    "name": item.product.name,
-                    "slug": item.product.slug,
-                } if item.product else None,
-                "variant": {
-                    "id": item.variant.id,
-                    "product_id": item.variant.product_id,
-                    "variant_name": item.variant.variant_name,
-                    "sell_price": item.variant.sell_price,
-                    "sku": item.variant.sku,
-                } if item.variant else None,
-            }
+            _item_to_dict(item)
             for item in (add_to_cart.items or [])
         ],
     }
@@ -89,6 +93,45 @@ def _recalculate_add_to_cart_totals(add_to_cart: AddToCart) -> None:
     add_to_cart.discount = discount
     add_to_cart.tax = 0.0
     add_to_cart.total = subtotal - discount + add_to_cart.tax
+
+
+def _calculate_item_total(
+    unit_price: float | None,
+    quantity: int | None,
+    discount_nominal: float | None,
+    discount_percent: float | None,
+) -> float:
+    qty = quantity if quantity and quantity > 0 else 1
+    price = unit_price or 0.0
+    subtotal = price * qty
+    disc = (discount_nominal or 0.0) + (subtotal * (discount_percent or 0.0) / 100.0)
+    return max(0.0, subtotal - disc)
+
+
+async def _resolve_item_info(
+    db: AsyncSession, item_in: AddToCartItemCreate
+) -> tuple[UUID, UUID | None, ProductVariant | None]:
+    target_product_id = item_in.product_id
+    target_variant_id = item_in.product_variant_id
+    variant: ProductVariant | None = None
+
+    if target_variant_id:
+        v_res = await db.execute(select(ProductVariant).where(ProductVariant.id == target_variant_id))
+        variant = v_res.scalar_one_or_none()
+        if variant and not target_product_id:
+            target_product_id = variant.product_id
+    elif item_in.sku:
+        v_res = await db.execute(select(ProductVariant).where(ProductVariant.sku == item_in.sku))
+        variant = v_res.scalar_one_or_none()
+        if variant:
+            target_variant_id = variant.id
+            if not target_product_id:
+                target_product_id = variant.product_id
+
+    if not target_product_id:
+        raise ResourceNotFoundError(f"Product not found or SKU '{item_in.sku}' does not exist")
+
+    return target_product_id, target_variant_id, variant
 
 
 class AddToCartService:
@@ -143,167 +186,256 @@ class AddToCartService:
         db.add(add_to_cart)
         await db.flush()
         
-        # Add items if provided
+        # Add items if provided (grouping items with the same SKU / variant)
+        added_items: dict[tuple[UUID, UUID | None], AddToCartItem] = {}
         for item_in in buffer_in.items:
-            item_data = item_in.model_dump()
-            cart_item = AddToCartItem(add_to_cart_id=add_to_cart.id, **item_data)
-            logger.warning(f'DEBUG ITEM DATA: {item_data} | CART ITEM: {cart_item.product_variant_id}')
-            db.add(cart_item)
+            target_product_id, target_variant_id, variant = await _resolve_item_info(db, item_in)
+            key = (target_product_id, target_variant_id)
+            qty_to_add = item_in.quantity if item_in.quantity and item_in.quantity > 0 else 1
+
+            if key in added_items:
+                existing = added_items[key]
+                existing.quantity += qty_to_add
+                if item_in.unit_price and item_in.unit_price > 0:
+                    existing.unit_price = item_in.unit_price
+                if item_in.item_notes:
+                    existing.item_notes = item_in.item_notes
+                existing.total = _calculate_item_total(
+                    existing.unit_price,
+                    existing.quantity,
+                    existing.discount_nominal,
+                    existing.discount_percent,
+                )
+            else:
+                item_data = item_in.model_dump(exclude={"sku"} if hasattr(item_in, "sku") else set())
+                item_data["add_to_cart_id"] = add_to_cart.id
+                item_data["product_id"] = target_product_id
+                item_data["product_variant_id"] = target_variant_id
+                item_data["quantity"] = qty_to_add
+
+                if not item_data.get("unit_price") and variant and variant.sell_price:
+                    item_data["unit_price"] = variant.sell_price
+
+                if not item_data.get("name") and variant and variant.variant_name:
+                    item_data["name"] = variant.variant_name
+
+                item_data["total"] = _calculate_item_total(
+                    item_data.get("unit_price"),
+                    item_data.get("quantity"),
+                    item_data.get("discount_nominal"),
+                    item_data.get("discount_percent"),
+                )
+
+                cart_item = AddToCartItem(**item_data)
+                db.add(cart_item)
+                added_items[key] = cart_item
             
         await db.flush()
-        
-        # We need to refresh the relationships to calculate totals
         await db.refresh(add_to_cart, ["items"])
-        
-        # Recalculate totals
         _recalculate_add_to_cart_totals(add_to_cart)
-        
         await db.commit()
         return await self.get_by_id(db, add_to_cart.id)
 
     async def update(self, db: AsyncSession, add_to_cart_id: UUID, buffer_in: AddToCartUpdate) -> dict[str, Any]:
-        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        query = select(AddToCart).where(AddToCart.id == add_to_cart_id)
+        result = await db.execute(query)
+        add_to_cart = result.scalar_one_or_none()
         if not add_to_cart:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
         update_data = buffer_in.model_dump(exclude_unset=True)
-        await crud_add_to_carts.update(db=db, db_obj=add_to_cart, obj_in=update_data)
+        for key, value in update_data.items():
+            setattr(add_to_cart, key, value)
         await db.commit()
         return await self.get_by_id(db, add_to_cart_id)
 
     async def delete(self, db: AsyncSession, add_to_cart_id: UUID) -> None:
-        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        query = select(AddToCart).where(AddToCart.id == add_to_cart_id)
+        result = await db.execute(query)
+        add_to_cart = result.scalar_one_or_none()
         if not add_to_cart:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
         await db.delete(add_to_cart)
         await db.commit()
 
     async def add_item(self, db: AsyncSession, add_to_cart_id: UUID, item_in: AddToCartItemCreate) -> dict[str, Any]:
-        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        query = (
+            select(AddToCart)
+            .options(
+                selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+                selectinload(AddToCart.items).selectinload(AddToCartItem.variant),
+            )
+            .where(AddToCart.id == add_to_cart_id)
+        )
+        result = await db.execute(query)
+        add_to_cart = result.scalar_one_or_none()
         if not add_to_cart:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
-        item_data = item_in.model_dump()
+        target_product_id, target_variant_id, variant = await _resolve_item_info(db, item_in)
+
+        # Check if an item with the same SKU / variant (or same product without variant) already exists
+        existing_item: AddToCartItem | None = None
+        for cart_item in (add_to_cart.items or []):
+            if target_variant_id is not None:
+                if cart_item.product_variant_id == target_variant_id:
+                    existing_item = cart_item
+                    break
+            elif item_in.sku and cart_item.variant and cart_item.variant.sku == item_in.sku:
+                existing_item = cart_item
+                break
+            else:
+                if cart_item.product_id == target_product_id and cart_item.product_variant_id is None:
+                    existing_item = cart_item
+                    break
+
+        qty_to_add = item_in.quantity if item_in.quantity and item_in.quantity > 0 else 1
+
+        if existing_item:
+            existing_item.quantity += qty_to_add
+            if item_in.unit_price and item_in.unit_price > 0:
+                existing_item.unit_price = item_in.unit_price
+            if item_in.item_notes:
+                existing_item.item_notes = item_in.item_notes
+            if item_in.discount_nominal is not None and item_in.discount_nominal > 0:
+                existing_item.discount_nominal = item_in.discount_nominal
+            if item_in.discount_percent is not None and item_in.discount_percent > 0:
+                existing_item.discount_percent = item_in.discount_percent
+
+            existing_item.total = _calculate_item_total(
+                existing_item.unit_price,
+                existing_item.quantity,
+                existing_item.discount_nominal,
+                existing_item.discount_percent,
+            )
+
+            await db.flush()
+            _recalculate_add_to_cart_totals(add_to_cart)
+            await db.commit()
+
+            query_item = (
+                select(AddToCartItem)
+                .options(selectinload(AddToCartItem.product), selectinload(AddToCartItem.variant))
+                .where(AddToCartItem.id == existing_item.id)
+            )
+            result_item = await db.execute(query_item)
+            return _item_to_dict(result_item.scalar_one())
+
+        item_data = item_in.model_dump(exclude={"sku"} if hasattr(item_in, "sku") else set())
         item_data["add_to_cart_id"] = add_to_cart_id
+        item_data["product_id"] = target_product_id
+        item_data["product_variant_id"] = target_variant_id
+        item_data["quantity"] = qty_to_add
+
+        if not item_data.get("unit_price") and variant and variant.sell_price:
+            item_data["unit_price"] = variant.sell_price
+
+        if not item_data.get("name") and variant and variant.variant_name:
+            item_data["name"] = variant.variant_name
+
+        item_data["total"] = _calculate_item_total(
+            item_data.get("unit_price"),
+            item_data.get("quantity"),
+            item_data.get("discount_nominal"),
+            item_data.get("discount_percent"),
+        )
+
         item = AddToCartItem(**item_data)
         db.add(item)
         await db.flush()
 
-        await db.refresh(add_to_cart)
+        await db.refresh(add_to_cart, ["items"])
         _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
-        await db.refresh(add_to_cart)
 
-        query = (
+        query_item = (
             select(AddToCartItem)
             .options(selectinload(AddToCartItem.product), selectinload(AddToCartItem.variant))
             .where(AddToCartItem.id == item.id)
         )
-        result = await db.execute(query)
-        new_item = result.scalar_one()
+        result_item = await db.execute(query_item)
+        new_item = result_item.scalar_one()
 
-        return {
-            "id": new_item.id,
-            "add_to_cart_id": new_item.add_to_cart_id,
-            "product_id": new_item.product_id,
-            "product_variant_id": new_item.product_variant_id,
-            "name": new_item.name,
-            "quantity": new_item.quantity,
-            "unit_price": new_item.unit_price,
-            "total": new_item.total,
-            "discount_nominal": new_item.discount_nominal,
-            "discount_percent": new_item.discount_percent,
-            "item_notes": new_item.item_notes,
-            "meta": new_item.meta,
-            "created_at": new_item.created_at,
-            "updated_at": new_item.updated_at,
-            "product": {
-                "id": new_item.product.id,
-                "name": new_item.product.name,
-                "slug": new_item.product.slug,
-            } if new_item.product else None,
-            "variant": {
-                "id": new_item.variant.id,
-                "product_id": new_item.variant.product_id,
-                "variant_name": new_item.variant.variant_name,
-                "sell_price": new_item.variant.sell_price,
-                "sku": new_item.variant.sku,
-            } if new_item.variant else None,
-        }
+        return _item_to_dict(new_item)
 
     async def update_item(self, db: AsyncSession, add_to_cart_id: UUID, item_id: UUID, item_in: AddToCartItemCreate) -> dict[str, Any]:
-        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        query = (
+            select(AddToCart)
+            .options(selectinload(AddToCart.items))
+            .where(AddToCart.id == add_to_cart_id)
+        )
+        result = await db.execute(query)
+        add_to_cart = result.scalar_one_or_none()
         if not add_to_cart:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
-        item = await crud_add_to_cart_items.get(db=db, id=item_id)
+        query_item = select(AddToCartItem).where(AddToCartItem.id == item_id)
+        result_item = await db.execute(query_item)
+        item = result_item.scalar_one_or_none()
         if not item or item.add_to_cart_id != add_to_cart_id:
             raise ResourceNotFoundError(f"AddToCart item with ID {item_id} not found in add_to_cart {add_to_cart_id}")
 
-        update_data = item_in.model_dump(exclude_unset=True)
-        await crud_add_to_cart_items.update(db=db, db_obj=item, obj_in=update_data)
+        update_data = item_in.model_dump(exclude_unset=True, exclude={"sku"} if hasattr(item_in, "sku") else set())
+        for key, value in update_data.items():
+            setattr(item, key, value)
+
+        item.total = _calculate_item_total(
+            item.unit_price,
+            item.quantity,
+            item.discount_nominal,
+            item.discount_percent,
+        )
         await db.flush()
 
-        await db.refresh(add_to_cart)
+        await db.refresh(add_to_cart, ["items"])
         _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
-        await db.refresh(add_to_cart)
 
-        query = (
+        query_updated = (
             select(AddToCartItem)
             .options(selectinload(AddToCartItem.product), selectinload(AddToCartItem.variant))
             .where(AddToCartItem.id == item_id)
         )
-        result = await db.execute(query)
-        updated_item = result.scalar_one()
+        result_updated = await db.execute(query_updated)
+        updated_item = result_updated.scalar_one()
 
-        return {
-            "id": updated_item.id,
-            "add_to_cart_id": updated_item.add_to_cart_id,
-            "product_id": updated_item.product_id,
-            "product_variant_id": updated_item.product_variant_id,
-            "name": updated_item.name,
-            "quantity": updated_item.quantity,
-            "unit_price": updated_item.unit_price,
-            "total": updated_item.total,
-            "discount_nominal": updated_item.discount_nominal,
-            "discount_percent": updated_item.discount_percent,
-            "item_notes": updated_item.item_notes,
-            "meta": updated_item.meta,
-            "created_at": updated_item.created_at,
-            "updated_at": updated_item.updated_at,
-            "product": {
-                "id": updated_item.product.id,
-                "name": updated_item.product.name,
-                "slug": updated_item.product.slug,
-            } if updated_item.product else None,
-            "variant": {
-                "id": updated_item.variant.id,
-                "product_id": updated_item.variant.product_id,
-                "variant_name": updated_item.variant.variant_name,
-                "sell_price": updated_item.variant.sell_price,
-                "sku": updated_item.variant.sku,
-            } if updated_item.variant else None,
-        }
+        return _item_to_dict(updated_item)
 
     async def delete_item(self, db: AsyncSession, add_to_cart_id: UUID, item_id: UUID) -> None:
-        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        query = (
+            select(AddToCart)
+            .options(selectinload(AddToCart.items))
+            .where(AddToCart.id == add_to_cart_id)
+        )
+        result = await db.execute(query)
+        add_to_cart = result.scalar_one_or_none()
         if not add_to_cart:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
-        item = await crud_add_to_cart_items.get(db=db, id=item_id)
+        query_item = select(AddToCartItem).where(AddToCartItem.id == item_id)
+        result_item = await db.execute(query_item)
+        item = result_item.scalar_one_or_none()
         if not item or item.add_to_cart_id != add_to_cart_id:
             raise ResourceNotFoundError(f"AddToCart item with ID {item_id} not found in add_to_cart {add_to_cart_id}")
 
         await db.delete(item)
         await db.flush()
 
-        await db.refresh(add_to_cart)
+        await db.refresh(add_to_cart, ["items"])
         _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
 
     async def checkout(self, db: AsyncSession, add_to_cart_id: UUID, checkout_in: AddToCartCheckout, creator_id: UUID | None = None) -> dict[str, Any]:
-        add_to_cart = await crud_add_to_carts.get(db=db, id=add_to_cart_id)
+        query = (
+            select(AddToCart)
+            .options(
+                selectinload(AddToCart.customer),
+                selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+            )
+            .where(AddToCart.id == add_to_cart_id)
+        )
+        result = await db.execute(query)
+        add_to_cart = result.scalar_one_or_none()
         if not add_to_cart:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
 
@@ -345,7 +477,7 @@ class AddToCartService:
                 order_id=order.id,
                 product_id=item.product_id,
                 product_variant_id=item.product_variant_id,
-                name=item.name,
+                name=item.name or (item.product.name if item.product else "Product"),
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 total=item.total,
@@ -359,7 +491,7 @@ class AddToCartService:
         await db.delete(add_to_cart)
         await db.commit()
 
-        query = (
+        query_order = (
             select(Order)
             .options(
                 selectinload(Order.customer),
@@ -368,8 +500,8 @@ class AddToCartService:
             )
             .where(Order.id == order.id)
         )
-        result = await db.execute(query)
-        new_order = result.scalar_one()
+        result_order = await db.execute(query_order)
+        new_order = result_order.scalar_one()
 
         return {
             "id": new_order.id,
@@ -404,13 +536,11 @@ class AddToCartService:
                     "order_id": item.order_id,
                     "product_id": item.product_id,
                     "product_variant_id": item.product_variant_id,
-                    "product_color_id": item.product_color_id,
                     "quantity": item.quantity,
                     "unit_price": item.unit_price,
                     "discount_nominal": item.discount_nominal,
                     "discount_percent": item.discount_percent,
                     "total": item.total,
-                    "weight": item.weight,
                     "name": item.name,
                     "item_notes": item.item_notes,
                     "meta": item.meta,
