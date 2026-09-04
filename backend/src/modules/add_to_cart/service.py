@@ -22,6 +22,7 @@ def _item_to_dict(item: AddToCartItem) -> dict[str, Any]:
         "add_to_cart_id": item.add_to_cart_id,
         "product_id": item.product_id,
         "product_variant_id": item.product_variant_id,
+        "variant_id": item.product_variant_id,
         "sku": item.variant.sku if item.variant else None,
         "name": item.name,
         "quantity": item.quantity,
@@ -112,14 +113,17 @@ async def _resolve_item_info(
     db: AsyncSession, item_in: AddToCartItemCreate
 ) -> tuple[UUID, UUID | None, ProductVariant | None]:
     target_product_id = item_in.product_id
-    target_variant_id = item_in.product_variant_id
+    target_variant_id = item_in.product_variant_id or getattr(item_in, "variant_id", None)
     variant: ProductVariant | None = None
 
     if target_variant_id:
         v_res = await db.execute(select(ProductVariant).where(ProductVariant.id == target_variant_id))
         variant = v_res.scalar_one_or_none()
-        if variant and not target_product_id:
-            target_product_id = variant.product_id
+        if variant:
+            if not target_product_id:
+                target_product_id = variant.product_id
+        else:
+            raise ResourceNotFoundError(f"ProductVariant with ID {target_variant_id} not found")
     elif item_in.sku:
         v_res = await db.execute(select(ProductVariant).where(ProductVariant.sku == item_in.sku))
         variant = v_res.scalar_one_or_none()
@@ -127,9 +131,11 @@ async def _resolve_item_info(
             target_variant_id = variant.id
             if not target_product_id:
                 target_product_id = variant.product_id
+        else:
+            raise ResourceNotFoundError(f"ProductVariant with SKU '{item_in.sku}' not found")
 
     if not target_product_id:
-        raise ResourceNotFoundError(f"Product not found or SKU '{item_in.sku}' does not exist")
+        raise ResourceNotFoundError("Either product_id, product_variant_id, variant_id, or sku must be provided")
 
     return target_product_id, target_variant_id, variant
 
@@ -207,7 +213,9 @@ class AddToCartService:
                     existing.discount_percent,
                 )
             else:
-                item_data = item_in.model_dump(exclude={"sku"} if hasattr(item_in, "sku") else set())
+                item_data = item_in.model_dump(exclude={"sku", "variant_id"} if hasattr(item_in, "sku") else set())
+                item_data.pop("sku", None)
+                item_data.pop("variant_id", None)
                 item_data["add_to_cart_id"] = add_to_cart.id
                 item_data["product_id"] = target_product_id
                 item_data["product_variant_id"] = target_variant_id
@@ -274,18 +282,20 @@ class AddToCartService:
 
         target_product_id, target_variant_id, variant = await _resolve_item_info(db, item_in)
 
-        # Check if an item with the same SKU / variant (or same product without variant) already exists
+        # Check if an item with the same variant_id (or same product without variant) already exists
         existing_item: AddToCartItem | None = None
         for cart_item in (add_to_cart.items or []):
             if target_variant_id is not None:
-                if cart_item.product_variant_id == target_variant_id:
+                if cart_item.product_variant_id == target_variant_id or (
+                    cart_item.product_variant_id and str(cart_item.product_variant_id) == str(target_variant_id)
+                ):
                     existing_item = cart_item
                     break
-            elif item_in.sku and cart_item.variant and cart_item.variant.sku == item_in.sku:
-                existing_item = cart_item
-                break
             else:
-                if cart_item.product_id == target_product_id and cart_item.product_variant_id is None:
+                if (
+                    cart_item.product_variant_id is None
+                    and (cart_item.product_id == target_product_id or str(cart_item.product_id) == str(target_product_id))
+                ):
                     existing_item = cart_item
                     break
 
@@ -321,7 +331,9 @@ class AddToCartService:
             result_item = await db.execute(query_item)
             return _item_to_dict(result_item.scalar_one())
 
-        item_data = item_in.model_dump(exclude={"sku"} if hasattr(item_in, "sku") else set())
+        item_data = item_in.model_dump(exclude={"sku", "variant_id"} if hasattr(item_in, "sku") else set())
+        item_data.pop("sku", None)
+        item_data.pop("variant_id", None)
         item_data["add_to_cart_id"] = add_to_cart_id
         item_data["product_id"] = target_product_id
         item_data["product_variant_id"] = target_variant_id
@@ -375,7 +387,9 @@ class AddToCartService:
         if not item or item.add_to_cart_id != add_to_cart_id:
             raise ResourceNotFoundError(f"AddToCart item with ID {item_id} not found in add_to_cart {add_to_cart_id}")
 
-        update_data = item_in.model_dump(exclude_unset=True, exclude={"sku"} if hasattr(item_in, "sku") else set())
+        update_data = item_in.model_dump(exclude_unset=True, exclude={"sku", "variant_id"} if hasattr(item_in, "sku") else set())
+        update_data.pop("sku", None)
+        update_data.pop("variant_id", None)
         for key, value in update_data.items():
             setattr(item, key, value)
 
@@ -422,6 +436,11 @@ class AddToCartService:
         await db.flush()
 
         await db.refresh(add_to_cart, ["items"])
+        if not add_to_cart.items or len(add_to_cart.items) == 0:
+            await db.delete(add_to_cart)
+            await db.commit()
+            return
+
         _recalculate_add_to_cart_totals(add_to_cart)
         await db.commit()
 
