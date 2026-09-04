@@ -1,7 +1,7 @@
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from ..common.schemas import TimestampSchema
 from ..customer.schemas import CustomerRead
@@ -11,6 +11,7 @@ from ..product.schemas import ProductRead, ProductVariantRead
 class AddToCartItemBase(BaseModel):
     product_id: UUID | None = None
     product_variant_id: UUID | None = None
+    variant_id: UUID | None = None
     sku: str | None = None
     name: str | None = None
     quantity: int = 1
@@ -20,6 +21,16 @@ class AddToCartItemBase(BaseModel):
     discount_percent: float = 0.0
     item_notes: str | None = None
     meta: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_variant_id(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            v_id = data.get("variant_id") or data.get("product_variant_id")
+            if v_id:
+                data["variant_id"] = v_id
+                data["product_variant_id"] = v_id
+        return data
 
 
 class AddToCartItemCreate(AddToCartItemBase):
