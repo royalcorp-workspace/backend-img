@@ -186,31 +186,121 @@ class AddToCartService:
             raise ResourceNotFoundError(f"AddToCart with ID {add_to_cart_id} not found")
         return _add_to_cart_to_dict(add_to_cart)
 
-    async def create(self, db: AsyncSession, buffer_in: AddToCartCreate) -> dict[str, Any]:
-        buffer_data = buffer_in.model_dump(exclude={"items"})
-        add_to_cart = AddToCart(**buffer_data)
-        db.add(add_to_cart)
-        await db.flush()
-        
-        # Add items if provided (grouping items with the same SKU / variant)
-        added_items: dict[tuple[UUID, UUID | None], AddToCartItem] = {}
+    async def create(self, db: AsyncSession, buffer_in: AddToCartCreate, creator_id: UUID | None = None) -> dict[str, Any]:
+        target_customer_id = buffer_in.customer_id
+        if not target_customer_id and creator_id:
+            cust_res = await db.execute(select(Customer).where(Customer.user_id == creator_id, Customer.deleted.is_(False)))
+            customer_obj = cust_res.scalar_one_or_none()
+            if customer_obj:
+                target_customer_id = customer_obj.id
+
+        # Check if an active cart already exists for this customer / session / creator
+        existing_cart: AddToCart | None = None
+        if target_customer_id:
+            query = (
+                select(AddToCart)
+                .options(
+                    selectinload(AddToCart.customer),
+                    selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+                    selectinload(AddToCart.items).selectinload(AddToCartItem.variant),
+                )
+                .where(AddToCart.customer_id == target_customer_id)
+                .order_by(AddToCart.created_at.desc())
+                .limit(1)
+            )
+            result = await db.execute(query)
+            existing_cart = result.scalar_one_or_none()
+        elif buffer_in.session_id:
+            query = (
+                select(AddToCart)
+                .options(
+                    selectinload(AddToCart.customer),
+                    selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+                    selectinload(AddToCart.items).selectinload(AddToCartItem.variant),
+                )
+                .where(AddToCart.session_id == buffer_in.session_id)
+                .order_by(AddToCart.created_at.desc())
+                .limit(1)
+            )
+            result = await db.execute(query)
+            existing_cart = result.scalar_one_or_none()
+        elif creator_id:
+            query = (
+                select(AddToCart)
+                .options(
+                    selectinload(AddToCart.customer),
+                    selectinload(AddToCart.items).selectinload(AddToCartItem.product),
+                    selectinload(AddToCart.items).selectinload(AddToCartItem.variant),
+                )
+                .where(AddToCart.creator == creator_id)
+                .order_by(AddToCart.created_at.desc())
+                .limit(1)
+            )
+            result = await db.execute(query)
+            existing_cart = result.scalar_one_or_none()
+
+        existing_items: list[AddToCartItem] = []
+        if existing_cart:
+            add_to_cart = existing_cart
+            existing_items = list(existing_cart.items) if existing_cart.items else []
+            if target_customer_id and not add_to_cart.customer_id:
+                add_to_cart.customer_id = target_customer_id
+            if buffer_in.customer_name and not add_to_cart.customer_name:
+                add_to_cart.customer_name = buffer_in.customer_name
+            if buffer_in.customer_email and not add_to_cart.customer_email:
+                add_to_cart.customer_email = buffer_in.customer_email
+            if buffer_in.customer_phone and not add_to_cart.customer_phone:
+                add_to_cart.customer_phone = buffer_in.customer_phone
+            if creator_id and not add_to_cart.creator:
+                add_to_cart.creator = creator_id
+        else:
+            buffer_data = buffer_in.model_dump(exclude={"items"})
+            if target_customer_id:
+                buffer_data["customer_id"] = target_customer_id
+            if creator_id:
+                buffer_data["creator"] = creator_id
+                buffer_data["editor"] = creator_id
+            add_to_cart = AddToCart(**buffer_data)
+            db.add(add_to_cart)
+            await db.flush()
+
+        # Add items: if product_variant_id is already in the cart, increase quantity; otherwise add new item
         for item_in in buffer_in.items:
             target_product_id, target_variant_id, variant = await _resolve_item_info(db, item_in)
-            key = (target_product_id, target_variant_id)
             qty_to_add = item_in.quantity if item_in.quantity and item_in.quantity > 0 else 1
 
-            if key in added_items:
-                existing = added_items[key]
-                existing.quantity += qty_to_add
+            existing_item: AddToCartItem | None = None
+            for cart_item in existing_items:
+                if target_variant_id is not None:
+                    if cart_item.product_variant_id == target_variant_id or (
+                        cart_item.product_variant_id and str(cart_item.product_variant_id) == str(target_variant_id)
+                    ):
+                        existing_item = cart_item
+                        break
+                else:
+                    if (
+                        cart_item.product_variant_id is None
+                        and (cart_item.product_id == target_product_id or str(cart_item.product_id) == str(target_product_id))
+                    ):
+                        existing_item = cart_item
+                        break
+
+            if existing_item:
+                existing_item.quantity += qty_to_add
                 if item_in.unit_price and item_in.unit_price > 0:
-                    existing.unit_price = item_in.unit_price
+                    existing_item.unit_price = item_in.unit_price
                 if item_in.item_notes:
-                    existing.item_notes = item_in.item_notes
-                existing.total = _calculate_item_total(
-                    existing.unit_price,
-                    existing.quantity,
-                    existing.discount_nominal,
-                    existing.discount_percent,
+                    existing_item.item_notes = item_in.item_notes
+                if item_in.discount_nominal is not None and item_in.discount_nominal > 0:
+                    existing_item.discount_nominal = item_in.discount_nominal
+                if item_in.discount_percent is not None and item_in.discount_percent > 0:
+                    existing_item.discount_percent = item_in.discount_percent
+
+                existing_item.total = _calculate_item_total(
+                    existing_item.unit_price,
+                    existing_item.quantity,
+                    existing_item.discount_nominal,
+                    existing_item.discount_percent,
                 )
             else:
                 item_data = item_in.model_dump(exclude={"sku", "variant_id"} if hasattr(item_in, "sku") else set())
@@ -236,8 +326,8 @@ class AddToCartService:
 
                 cart_item = AddToCartItem(**item_data)
                 db.add(cart_item)
-                added_items[key] = cart_item
-            
+                existing_items.append(cart_item)
+
         await db.flush()
         await db.refresh(add_to_cart, ["items"])
         _recalculate_add_to_cart_totals(add_to_cart)

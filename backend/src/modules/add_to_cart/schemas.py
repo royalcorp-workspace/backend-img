@@ -67,7 +67,7 @@ class AddToCartCreate(AddToCartBase):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "customer_id": "123e4567-e89b-12d3-a456-426614174000",
+                "customer_id": "019f5946-02d5-70b9-9b3a-e05205100c0c",
                 "session_id": "abc12345",
                 "customer_name": "John Doe",
                 "customer_email": "john@example.com",
@@ -79,8 +79,9 @@ class AddToCartCreate(AddToCartBase):
                 "meta": {"source": "mobile_app"},
                 "items": [
                     {
-                        "product_id": "223e4567-e89b-12d3-a456-426614174000",
-                        "product_variant_id": "323e4567-e89b-12d3-a456-426614174000",
+                        "product_id": "d7e23a85-d835-430b-9c1b-0e29f8449697",
+                        "variant_id": "00034552-c2b9-49d6-8b5e-62a4dcb4f295",
+                        "sku": "KBR001520011123S200160",
                         "name": "KB GRAND X LB-17",
                         "quantity": 1,
                         "unit_price": 1000000.0,
