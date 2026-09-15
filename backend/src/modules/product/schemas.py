@@ -21,6 +21,17 @@ class ProductBase(BaseModel):
     status: int = 1
     uom: str | None = None
     segments: list[Any] | dict[str, Any] | None = None
+    code: str | None = None
+    warranty_duration: str | None = None
+    courier_type: str | None = "keduanya"
+    courier_type_label: str | None = None
+    shipping_scheme: str | None = "dimension"
+    shipping_scheme_label: str | None = None
+    shipping_cost: float | None = 0.0
+    length: str | None = None
+    width: str | None = None
+    height: str | None = None
+    weight: str | None = None
 
     @field_validator("thumbnail", mode="before")
     @classmethod
@@ -32,6 +43,8 @@ class Product(ProductBase, TimestampSchema):
     id: UUID
     images: list[dict[str, Any]] = []
     variants: list[dict[str, Any]] = []
+    grouped_variants: list[dict[str, Any]] = []
+    attribute_groups: dict[str, Any] = {}
     colors: list[dict[str, Any]] = []
     price_product_settings: list[dict[str, Any]] = []
     reviews: list[dict[str, Any]] = []
@@ -79,12 +92,23 @@ class ProductUpdate(BaseModel):
     status: int | None = None
     uom: str | None = None
     segments: list[Any] | dict[str, Any] | None = None
+    code: str | None = None
+    warranty_duration: str | None = None
+    courier_type: str | None = None
+    shipping_scheme: str | None = None
+    shipping_cost: float | None = None
+    length: str | None = None
+    width: str | None = None
+    height: str | None = None
+    weight: str | None = None
 
 
 class ProductRead(ProductBase):
     id: UUID
     images: list[dict[str, Any]] = []
     variants: list[dict[str, Any]] = []
+    grouped_variants: list[dict[str, Any]] = []
+    attribute_groups: dict[str, Any] = {}
     colors: list[dict[str, Any]] = []
     price_product_settings: list[dict[str, Any]] = []
     reviews: list[dict[str, Any]] = []
@@ -149,8 +173,13 @@ class ProductVariantBase(BaseModel):
     weight: float | None = 0.0
     base_price: float | None = 0.0
     sell_price: float | None = 0.0
+    shipping_cost: float | None = 0.0
     stock_qty: int | None = 0
     attributes: dict | None = None
+    size: str | None = None
+    kelengkapan: str | None = None
+    thickness: str | None = None
+    tebal: str | None = None
 
 
 class ProductVariant(ProductVariantBase, TimestampSchema):

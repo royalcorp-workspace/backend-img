@@ -19,6 +19,9 @@ class OrderItemBase(BaseModel):
     total: float = 0.0
     name: str | None = None
     item_notes: str | None = None
+    color_id: UUID | str | None = None
+    color_name: str | None = None
+    color_code: str | None = None
     meta: dict[str, Any] | None = None
 
 
