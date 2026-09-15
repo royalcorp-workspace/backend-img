@@ -30,6 +30,8 @@ class Category(Base, TimestampMixin):
     banner_mobile: Mapped[str | None] = mapped_column(String(500), default=None)
     sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
     status: Mapped[bool] = mapped_column("is_active", Boolean, default=True)
+    courier_setting_type: Mapped[str | None] = mapped_column(String(50), default="detail")
+    courier_type: Mapped[str | None] = mapped_column(String(50), default="keduanya")
     creator: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     editor: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)

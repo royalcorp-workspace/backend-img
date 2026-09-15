@@ -18,6 +18,8 @@ class CategoryBase(BaseModel):
     tagline: str | None = None
     sort_order: int | None = 0
     status: bool = True
+    courier_setting_type: str | None = "detail"
+    courier_type: str | None = "keduanya"
 
     @field_validator("image", "banner_web", "banner_mobile", mode="before")
     @classmethod
@@ -44,6 +46,8 @@ class CategoryUpdate(BaseModel):
     tagline: str | None = None
     sort_order: int | None = None
     status: bool | None = None
+    courier_setting_type: str | None = None
+    courier_type: str | None = None
 
 
 class CategoryRead(CategoryBase):

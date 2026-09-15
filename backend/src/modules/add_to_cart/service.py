@@ -17,6 +17,7 @@ logger = get_logger()
 
 
 def _item_to_dict(item: AddToCartItem) -> dict[str, Any]:
+    meta = item.meta or {}
     return {
         "id": item.id,
         "add_to_cart_id": item.add_to_cart_id,
@@ -31,6 +32,9 @@ def _item_to_dict(item: AddToCartItem) -> dict[str, Any]:
         "discount_nominal": item.discount_nominal,
         "discount_percent": item.discount_percent,
         "item_notes": item.item_notes,
+        "color_id": meta.get("color_id"),
+        "color_name": meta.get("color_name"),
+        "color_code": meta.get("color_code"),
         "meta": item.meta,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
@@ -269,8 +273,19 @@ class AddToCartService:
             target_product_id, target_variant_id, variant = await _resolve_item_info(db, item_in)
             qty_to_add = item_in.quantity if item_in.quantity and item_in.quantity > 0 else 1
 
+            item_meta = item_in.meta or {}
+            item_color_id = str(item_in.color_id) if getattr(item_in, "color_id", None) else item_meta.get("color_id")
+            if item_color_id:
+                item_color_id = str(item_color_id)
+
             existing_item: AddToCartItem | None = None
             for cart_item in existing_items:
+                cart_meta = cart_item.meta or {}
+                cart_color_id = str(cart_meta.get("color_id")) if cart_meta.get("color_id") else None
+
+                if cart_color_id != item_color_id:
+                    continue
+
                 if target_variant_id is not None:
                     if cart_item.product_variant_id == target_variant_id or (
                         cart_item.product_variant_id and str(cart_item.product_variant_id) == str(target_variant_id)
@@ -303,9 +318,12 @@ class AddToCartService:
                     existing_item.discount_percent,
                 )
             else:
-                item_data = item_in.model_dump(exclude={"sku", "variant_id"} if hasattr(item_in, "sku") else set())
+                item_data = item_in.model_dump(exclude={"sku", "variant_id", "color_id", "color_name", "color_code"} if hasattr(item_in, "sku") else set())
                 item_data.pop("sku", None)
                 item_data.pop("variant_id", None)
+                item_data.pop("color_id", None)
+                item_data.pop("color_name", None)
+                item_data.pop("color_code", None)
                 item_data["add_to_cart_id"] = add_to_cart.id
                 item_data["product_id"] = target_product_id
                 item_data["product_variant_id"] = target_variant_id
@@ -372,9 +390,20 @@ class AddToCartService:
 
         target_product_id, target_variant_id, variant = await _resolve_item_info(db, item_in)
 
-        # Check if an item with the same variant_id (or same product without variant) already exists
+        # Check if an item with the same variant_id (or same product without variant) and same color already exists
+        item_meta = item_in.meta or {}
+        item_color_id = str(item_in.color_id) if getattr(item_in, "color_id", None) else item_meta.get("color_id")
+        if item_color_id:
+            item_color_id = str(item_color_id)
+
         existing_item: AddToCartItem | None = None
         for cart_item in (add_to_cart.items or []):
+            cart_meta = cart_item.meta or {}
+            cart_color_id = str(cart_meta.get("color_id")) if cart_meta.get("color_id") else None
+
+            if cart_color_id != item_color_id:
+                continue
+
             if target_variant_id is not None:
                 if cart_item.product_variant_id == target_variant_id or (
                     cart_item.product_variant_id and str(cart_item.product_variant_id) == str(target_variant_id)
@@ -421,9 +450,12 @@ class AddToCartService:
             result_item = await db.execute(query_item)
             return _item_to_dict(result_item.scalar_one())
 
-        item_data = item_in.model_dump(exclude={"sku", "variant_id"} if hasattr(item_in, "sku") else set())
+        item_data = item_in.model_dump(exclude={"sku", "variant_id", "color_id", "color_name", "color_code"} if hasattr(item_in, "sku") else set())
         item_data.pop("sku", None)
         item_data.pop("variant_id", None)
+        item_data.pop("color_id", None)
+        item_data.pop("color_name", None)
+        item_data.pop("color_code", None)
         item_data["add_to_cart_id"] = add_to_cart_id
         item_data["product_id"] = target_product_id
         item_data["product_variant_id"] = target_variant_id

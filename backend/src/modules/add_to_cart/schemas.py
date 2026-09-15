@@ -20,16 +20,35 @@ class AddToCartItemBase(BaseModel):
     discount_nominal: float = 0.0
     discount_percent: float = 0.0
     item_notes: str | None = None
+    color_id: UUID | str | None = None
+    color_name: str | None = None
+    color_code: str | None = None
     meta: dict[str, Any] | None = None
 
     @model_validator(mode="before")
     @classmethod
-    def sync_variant_id(cls, data: Any) -> Any:
+    def sync_variant_and_color(cls, data: Any) -> Any:
         if isinstance(data, dict):
             v_id = data.get("variant_id") or data.get("product_variant_id")
             if v_id:
                 data["variant_id"] = v_id
                 data["product_variant_id"] = v_id
+
+            meta = dict(data.get("meta") or {})
+            c_id = data.get("color_id") or meta.get("color_id")
+            c_name = data.get("color_name") or meta.get("color_name")
+            c_code = data.get("color_code") or meta.get("color_code")
+            if c_id:
+                meta["color_id"] = str(c_id)
+                data["color_id"] = str(c_id)
+            if c_name:
+                meta["color_name"] = str(c_name)
+                data["color_name"] = str(c_name)
+            if c_code:
+                meta["color_code"] = str(c_code)
+                data["color_code"] = str(c_code)
+            if meta:
+                data["meta"] = meta
         return data
 
 

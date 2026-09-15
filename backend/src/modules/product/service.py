@@ -1,3 +1,4 @@
+import re
 from typing import Any
 from uuid import UUID
 
@@ -26,8 +27,214 @@ from .schemas import (
 logger = get_logger()
 
 
+def _natural_sort_key(s: Any) -> list[int | str]:
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", str(s))]
+
+
+def _normalize_variant_attributes(attrs: dict[str, Any] | None, variant_name: str | None = None) -> dict[str, Any]:
+    res = dict(attrs) if attrs else {}
+    comp = res.get("Kelengkapan")
+    if comp or variant_name:
+        comp_str = (str(comp or "") + " " + str(variant_name or "")).lower()
+        if "full" in comp_str or "divan" in comp_str or "set" in comp_str:
+            res["Kelengkapan"] = "Fullset"
+        else:
+            res["Kelengkapan"] = "Mattress Only"
+    return res
+
+
+def _parse_variant_info(
+    attrs: dict[str, Any] | None,
+    variant_name: str | None = None,
+    width: Any = None,
+    length: Any = None,
+    height: Any = None,
+) -> dict[str, Any]:
+    attrs = dict(attrs) if attrs else {}
+    name = (variant_name or "").strip()
+
+    # 1. Determine Size (Ukuran)
+    size = None
+    if attrs.get("Ukuran"):
+        size = str(attrs["Ukuran"]).strip().upper()
+
+    if not size and name:
+        m = re.match(r"^(\d+\s*[xX×]\s*\d+)", name)
+        if m:
+            size = m.group(1).upper()
+
+    if not size:
+        w = attrs.get("width") if attrs.get("width") is not None else width
+        l = attrs.get("length") if attrs.get("length") is not None else length
+        try:
+            if w is not None and l is not None and float(w) > 0 and float(l) > 0:
+                w_val = int(float(w))
+                l_val = int(float(l))
+                w_str = f"{w_val:03d}" if w_val < 100 else f"{w_val}"
+                size = f"{w_str} X {l_val}"
+        except (ValueError, TypeError):
+            pass
+
+    if not size and name:
+        m_any = re.search(r"(\d+\s*[xX×]\s*\d+)", name)
+        if m_any:
+            size = m_any.group(1).upper()
+
+    if not size:
+        size = name or "Standar"
+
+    # Normalize "X" spacing and zero pad 2-digit width e.g. "80 X 200" -> "080 X 200"
+    m_sz = re.match(r"^(\d+)\s*[xX×]\s*(\d+)$", size)
+    if m_sz:
+        w_int = int(m_sz.group(1))
+        l_int = int(m_sz.group(2))
+        w_str = f"{w_int:03d}" if w_int < 100 else f"{w_int}"
+        size = f"{w_str} X {l_int}"
+
+    # 2. Determine Completeness (Kelengkapan) - strictly 'Mattress Only' or 'Fullset'
+    comp_raw = attrs.get("Kelengkapan")
+    comp_str = f"{comp_raw or ''} {name}".lower()
+    if any(k in comp_str for k in ["full", "divan", "set"]):
+        kelengkapan = "Fullset"
+    else:
+        kelengkapan = "Mattress Only"
+
+    # 3. Determine Thickness (Ketebalan / Tebal)
+    thickness = None
+    if attrs.get("Ketebalan"):
+        thickness = str(attrs["Ketebalan"]).strip()
+    elif attrs.get("tebal"):
+        thickness = str(attrs["tebal"]).strip()
+    else:
+        h = attrs.get("height") if attrs.get("height") is not None else height
+        try:
+            if h is not None and float(h) > 0:
+                h_val = int(float(h)) if float(h).is_integer() else float(h)
+                thickness = f"{h_val} cm"
+        except (ValueError, TypeError):
+            pass
+
+    if not thickness and name:
+        m_t = re.search(r"\b(?:T|Tebal)\.?\s*(\d+)", name, re.IGNORECASE)
+        if m_t:
+            thickness = f"{m_t.group(1)} cm"
+
+    return {
+        "size": size,
+        "kelengkapan": kelengkapan,
+        "thickness": thickness or "-",
+    }
+
+
+def _build_product_groups(product_dict: dict[str, Any]) -> None:
+    variants = product_dict.get("variants", [])
+    if not variants:
+        product_dict["grouped_variants"] = []
+        product_dict["attribute_groups"] = {}
+        return
+
+    groups_by_size: dict[str, list[dict[str, Any]]] = {}
+    sizes_set = set()
+    kelengkapan_set = set()
+    thickness_set = set()
+
+    for v in variants:
+        attrs = v.get("attributes") or {}
+        v_name = v.get("variant_name") or ""
+        parsed = _parse_variant_info(
+            attrs=attrs,
+            variant_name=v_name,
+            width=v.get("width"),
+            length=v.get("length"),
+            height=v.get("height"),
+        )
+
+        v["size"] = parsed["size"]
+        v["kelengkapan"] = parsed["kelengkapan"]
+        v["thickness"] = parsed["thickness"]
+        v["tebal"] = parsed["thickness"]
+        if "attributes" in v and isinstance(v["attributes"], dict):
+            v["attributes"]["Ukuran"] = parsed["size"]
+            v["attributes"]["Kelengkapan"] = parsed["kelengkapan"]
+            if parsed["thickness"] != "-":
+                v["attributes"]["Ketebalan"] = parsed["thickness"]
+
+        sz = parsed["size"]
+        groups_by_size.setdefault(sz, []).append(v)
+        sizes_set.add(sz)
+        kelengkapan_set.add(parsed["kelengkapan"])
+        if parsed["thickness"] != "-":
+            thickness_set.add(parsed["thickness"])
+
+    sorted_sizes = sorted(groups_by_size.keys(), key=_natural_sort_key)
+
+    grouped_variants = []
+    for sz in sorted_sizes:
+        var_list = groups_by_size[sz]
+        var_list.sort(key=lambda item: (
+            item["kelengkapan"] != "Mattress Only",
+            _natural_sort_key(item["thickness"]),
+            _natural_sort_key(item.get("variant_name") or "")
+        ))
+
+        prices = [
+            float(v.get("final_price") or v.get("sell_price") or 0.0)
+            for v in var_list
+            if float(v.get("sell_price") or 0.0) > 0
+        ]
+        if not prices:
+            prices = [float(v.get("sell_price") or 0.0) for v in var_list]
+        min_p = min(prices) if prices else 0.0
+        max_p = max(prices) if prices else 0.0
+        stock = sum(int(v.get("stock_qty") or 0) for v in var_list)
+
+        ship_costs = [
+            float(v.get("shipping_cost") or 0.0)
+            for v in var_list
+            if v.get("shipping_cost") is not None
+        ]
+        min_ship = min(ship_costs) if ship_costs else float(product_dict.get("shipping_cost") or 0.0)
+        max_ship = max(ship_costs) if ship_costs else float(product_dict.get("shipping_cost") or 0.0)
+
+        comps = sorted(list({v["kelengkapan"] for v in var_list}))
+        thicks = sorted(list({v["thickness"] for v in var_list if v["thickness"] != "-"}))
+
+        grouped_variants.append({
+            "size": sz,
+            "min_price": min_p,
+            "max_price": max_p,
+            "min_shipping_cost": min_ship,
+            "max_shipping_cost": max_ship,
+            "total_stock": stock,
+            "completenesses": comps,
+            "thicknesses": thicks,
+            "variants": var_list,
+        })
+
+    product_dict["grouped_variants"] = grouped_variants
+    product_dict["attribute_groups"] = {
+        "Ukuran": sorted(list(sizes_set), key=_natural_sort_key),
+        "Kelengkapan": sorted(list(kelengkapan_set)),
+        "Ketebalan": sorted(list(thickness_set), key=_natural_sort_key),
+    }
+
+
 def _product_to_dict(product: Product) -> dict[str, Any]:
     thumb_url = get_media_url(product.thumbnail)
+    c_type = getattr(product, "courier_type", "keduanya") or "keduanya"
+    s_scheme = getattr(product, "shipping_scheme", "dimension") or "dimension"
+    s_cost = float(getattr(product, "shipping_cost", 0.0) or 0.0)
+
+    courier_labels = {
+        "toko": "Pengiriman by Toko",
+        "expedisi": "Pengiriman by Expedisi",
+        "keduanya": "Keduanya (Toko & Expedisi)",
+    }
+    scheme_labels = {
+        "fixed": "Ongkos Kirim Tetap (Fixed Rate)",
+        "dimension": "Hitung dari Dimensi & Berat",
+    }
+
     return {
         "id": product.id,
         "name": product.name,
@@ -38,6 +245,17 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
         "alt_text": product.alt_text,
         "short_description": product.short_description,
         "description": product.description,
+        "code": getattr(product, "code", None),
+        "warranty_duration": getattr(product, "warranty_duration", None),
+        "courier_type": c_type,
+        "courier_type_label": courier_labels.get(c_type, "Keduanya (Toko & Expedisi)"),
+        "shipping_scheme": s_scheme,
+        "shipping_scheme_label": scheme_labels.get(s_scheme, "Hitung dari Dimensi & Berat"),
+        "shipping_cost": s_cost,
+        "length": getattr(product, "length", None),
+        "width": getattr(product, "width", None),
+        "height": getattr(product, "height", None),
+        "weight": getattr(product, "weight", None),
         "segments": product.segments,
         "best_seller": product.best_seller,
         "is_new": product.is_new,
@@ -59,6 +277,7 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "updated_at": img.updated_at,
             }
             for img in (product.images or [])
+            if not getattr(img, "deleted", False)
         ],
         "variants": [
             {
@@ -68,8 +287,14 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "variant_name": v.variant_name,
                 "base_price": v.base_price,
                 "sell_price": v.sell_price,
+                "shipping_cost": float(getattr(v, "shipping_cost", 0.0) or 0.0),
                 "stock_qty": v.stock_qty,
-                "attributes": v.attributes,
+                "attributes": _normalize_variant_attributes(v.attributes, v.variant_name),
+                "width": (v.attributes or {}).get("width") if v.attributes and (v.attributes.get("width") is not None) else getattr(v, "width", None),
+                "length": (v.attributes or {}).get("length") if v.attributes and (v.attributes.get("length") is not None) else getattr(v, "length", None),
+                "height": (v.attributes or {}).get("height") if v.attributes and (v.attributes.get("height") is not None) else getattr(v, "height", None),
+                "weight": (v.attributes or {}).get("weight") if v.attributes and (v.attributes.get("weight") is not None) else getattr(v, "weight", None),
+                "status": getattr(v, "status", True) if getattr(v, "status", None) is not None else ((v.attributes or {}).get("status", True) if v.attributes else True),
                 "creator": v.creator,
                 "editor": v.editor,
                 "deleted": v.deleted,
@@ -79,6 +304,7 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "final_price": 0.0,
             }
             for v in (product.variants or [])
+            if not getattr(v, "deleted", False)
         ],
         "colors": [
             {
@@ -86,7 +312,7 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "product_id": c.product_id,
                 "color_name": c.color_name,
                 "color_code": c.color_code,
-                "status": c.status,
+                "status": getattr(c, "status", True),
                 "creator": c.creator,
                 "editor": c.editor,
                 "deleted": c.deleted,
@@ -94,7 +320,10 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
                 "updated_at": c.updated_at,
             }
             for c in (product.colors or [])
+            if not getattr(c, "deleted", False)
         ],
+        "grouped_variants": [],
+        "attribute_groups": {},
         "price_product_settings": [],
         "final_price": 0.0,
         "reviews": [
@@ -128,17 +357,27 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
             for s in (getattr(product, "suggestions", []) or [])
         ],
     }
+    _build_product_groups(res)
+    return res
 
 
 def _variant_to_dict(variant: ProductVariant) -> dict[str, Any]:
-    return {
+    res = {
         "id": variant.id,
         "product_id": variant.product_id,
         "sku": variant.sku,
         "variant_name": variant.variant_name,
         "price": variant.price,
+        "base_price": getattr(variant, "base_price", variant.price),
+        "sell_price": getattr(variant, "sell_price", variant.price),
+        "shipping_cost": float(getattr(variant, "shipping_cost", 0.0) or 0.0),
         "stock_qty": variant.stock_qty,
-        "attributes": variant.attributes,
+        "attributes": _normalize_variant_attributes(variant.attributes, variant.variant_name),
+        "width": (variant.attributes or {}).get("width") if variant.attributes and (variant.attributes.get("width") is not None) else getattr(variant, "width", None),
+        "length": (variant.attributes or {}).get("length") if variant.attributes and (variant.attributes.get("length") is not None) else getattr(variant, "length", None),
+        "height": (variant.attributes or {}).get("height") if variant.attributes and (variant.attributes.get("height") is not None) else getattr(variant, "height", None),
+        "weight": (variant.attributes or {}).get("weight") if variant.attributes and (variant.attributes.get("weight") is not None) else getattr(variant, "weight", None),
+        "status": getattr(variant, "status", True) if getattr(variant, "status", None) is not None else ((variant.attributes or {}).get("status", True) if variant.attributes else True),
         "creator": variant.creator,
         "editor": variant.editor,
         "deleted": variant.deleted,
@@ -147,6 +386,18 @@ def _variant_to_dict(variant: ProductVariant) -> dict[str, Any]:
         "price_product_settings": [],
         "final_price": 0.0,
     }
+    parsed = _parse_variant_info(
+        attrs=res["attributes"],
+        variant_name=res["variant_name"],
+        width=res["width"],
+        length=res["length"],
+        height=res["height"],
+    )
+    res["size"] = parsed["size"]
+    res["kelengkapan"] = parsed["kelengkapan"]
+    res["thickness"] = parsed["thickness"]
+    res["tebal"] = parsed["thickness"]
+    return res
 
 
 def _price_setting_item_to_dict(item: PriceProductSettingItem) -> dict[str, Any]:
@@ -315,6 +566,7 @@ class ProductService:
             )
             product_dict["avg_rating"] = round(avg_rating, 2)
             product_dict["total_reviews"] = len(reviews)
+            _build_product_groups(product_dict)
             product_dicts.append(product_dict)
 
         return {
@@ -386,6 +638,7 @@ class ProductService:
         )
         product_dict["avg_rating"] = round(avg_rating, 2)
         product_dict["total_reviews"] = len(reviews)
+        _build_product_groups(product_dict)
         return product_dict
 
     async def create(self, db: AsyncSession, product_in: ProductCreate) -> dict[str, Any]:
