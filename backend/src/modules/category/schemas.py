@@ -13,6 +13,8 @@ class CategoryBase(BaseModel):
     parent_id: UUID | None = None
     description: str | None = None
     image: str | None = None
+    logo: str | None = None
+    banner: str | None = None
     banner_web: str | None = None
     banner_mobile: str | None = None
     tagline: str | None = None
@@ -20,8 +22,9 @@ class CategoryBase(BaseModel):
     status: bool = True
     courier_setting_type: str | None = "detail"
     courier_type: str | None = "keduanya"
+    is_featured: bool | None = False
 
-    @field_validator("image", "banner_web", "banner_mobile", mode="before")
+    @field_validator("image", "logo", "banner", "banner_web", "banner_mobile", mode="before", check_fields=False)
     @classmethod
     def format_category_images(cls, v: Any) -> Any:
         return get_media_url(v)

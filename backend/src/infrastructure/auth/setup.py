@@ -29,7 +29,7 @@ _use_redis = settings.SESSION_BACKEND == "redis"
 _bearer_transport = BearerTransport(
     access_ttl=3600,
     refresh_ttl_days=30,
-    refresh="cookie",
+    refresh="body",
 )
 
 # The existing 'users' table uses a different naming convention than the User model.
