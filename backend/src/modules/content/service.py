@@ -201,13 +201,22 @@ class ContentService:
                 "products_count": p_count,
             })
 
-        # 4. Preload Brands
+        # 4. Preload Brands (only brands with active products)
         br_stmt = (
             select(Brand)
             .where(
                 Brand.deleted == False,
                 or_(Brand.status == 1, Brand.status.is_(None)),
+                Brand.id.in_(
+                    select(Product.brand_id)
+                    .where(
+                        Product.deleted == False,
+                        or_(Product.status == 1, Product.status.is_(None)),
+                        Product.brand_id.isnot(None),
+                    )
+                ),
             )
+            .order_by(Brand.sort_order.asc(), Brand.name.asc())
             .limit(20)
         )
         br_res = await db.execute(br_stmt)
@@ -228,7 +237,7 @@ class ContentService:
 
         # 5. Preload Promo Brands (brands with top 3 discounted/promoted products)
         formatted_promo_brands = []
-        for b in brands[:6]:
+        for b in brands:
             b_prod_stmt = (
                 select(Product)
                 .options(
@@ -249,6 +258,8 @@ class ContentService:
             b_prods = [_format_product_card(p) for p in b_prod_res.scalars().all()]
             b_prods.sort(key=lambda x: x.get("discount_percent", 0.0), reverse=True)
             top_promo_products = b_prods[:3]
+            if not top_promo_products:
+                continue
             formatted_promo_brands.append({
                 "id": b.id,
                 "name": b.name,
@@ -256,6 +267,8 @@ class ContentService:
                 "is_featured": b.is_featured,
                 "top_promo_products": top_promo_products,
             })
+            if len(formatted_promo_brands) >= 6:
+                break
 
         # 6. Preload Bundling
         bund_stmt = (
@@ -404,7 +417,7 @@ class ContentService:
         def _get_items_for_key(sec_key: str, sec_meta: dict[str, Any] | None) -> list[Any]:
             k = sec_key.lower()
             if "kategori" in k or "category" in k:
-                return formatted_categories
+                return []
             elif "best" in k:
                 return formatted_bestsellers
             elif "pilihan" in k or ("brand" in k and "promo" not in k) or "merek" in k:
@@ -437,8 +450,12 @@ class ContentService:
         if db_sections:
             for sec in db_sections:
                 k = sec.section_key
-                seen_keys.add(k.lower())
+                if "kategori" in k.lower() or "category" in k.lower():
+                    continue
                 items = _get_items_for_key(k, sec.meta)
+                if not items:
+                    continue
+                seen_keys.add(k.lower())
                 result_sections.append({
                     "id": sec.id,
                     "section_key": sec.section_key,
@@ -449,22 +466,21 @@ class ContentService:
                     "items": items,
                 })
 
-        # Default fallback sections if not defined in DB
+        # Default fallback sections if not defined in DB (excluding kategori)
         default_sections = [
             {"section_key": "banners", "title": "Banner Promo", "items": formatted_banners, "sort_order": 1},
-            {"section_key": "kategori", "title": "Kategori Pilihan", "items": formatted_categories, "sort_order": 2},
-            {"section_key": "best_seller", "title": "Best Seller", "items": formatted_bestsellers, "sort_order": 3},
-            {"section_key": "pilihan_brand", "title": "Pilihan Brand", "items": formatted_brands, "sort_order": 4},
-            {"section_key": "promo_brand", "title": "Promo Brand", "items": formatted_promo_brands, "sort_order": 5},
+            {"section_key": "best_seller", "title": "Best Seller", "items": formatted_bestsellers, "sort_order": 2},
+            {"section_key": "pilihan_brand", "title": "Pilihan Brand", "items": formatted_brands, "sort_order": 3},
+            {"section_key": "promo_brand", "title": "Promo Brand", "items": formatted_promo_brands, "sort_order": 4},
             {
                 "section_key": "spesial",
                 "title": "Produk Spesial",
                 "items": [formatted_bestsellers[0]] if formatted_bestsellers else [],
-                "sort_order": 6,
+                "sort_order": 5,
             },
-            {"section_key": "bundling", "title": "Paket Bundling", "items": formatted_bundles, "sort_order": 7},
-            {"section_key": "rekomendasi", "title": "Rekomendasi Untuk Anda", "items": formatted_recommended, "sort_order": 8},
-            {"section_key": "events", "title": "Event Popups", "items": formatted_events, "sort_order": 9},
+            {"section_key": "bundling", "title": "Paket Bundling", "items": formatted_bundles, "sort_order": 6},
+            {"section_key": "rekomendasi", "title": "Rekomendasi Untuk Anda", "items": formatted_recommended, "sort_order": 7},
+            {"section_key": "events", "title": "Event Popups", "items": formatted_events, "sort_order": 8},
         ]
 
         if not result_sections:
@@ -479,10 +495,13 @@ class ContentService:
                     "items": ds["items"],
                 }
                 for ds in default_sections
+                if ds["items"]
             ]
         else:
             max_sort = max(s["sort_order"] for s in result_sections) if result_sections else 0
             for ds in default_sections:
+                if not ds["items"]:
+                    continue
                 if not any(ds["section_key"] in k for k in seen_keys):
                     max_sort += 1
                     result_sections.append({
@@ -495,8 +514,13 @@ class ContentService:
                         "items": ds["items"],
                     })
 
+        result_sections = [
+            s for s in result_sections
+            if s.get("items") and not ("kategori" in s.get("section_key", "").lower() or "category" in s.get("section_key", "").lower())
+        ]
         result_sections.sort(key=lambda s: s.get("sort_order", 0))
         return result_sections
+
 
     # --- About Us ---
     async def get_about_us_paginated(self, db: AsyncSession, skip: int = 0, limit: int = 100, **filters):

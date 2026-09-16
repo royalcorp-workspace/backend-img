@@ -100,6 +100,13 @@ class ProductImage(Base, TimestampMixin):
     alt_text: Mapped[str | None] = mapped_column(String(150), default=None)
 
     product: Mapped["Product"] = relationship("Product", back_populates="images", lazy="selectin", init=False)
+    variant: Mapped["ProductVariant | None"] = relationship(
+        "ProductVariant",
+        foreign_keys=[variant_id],
+        back_populates="images",
+        lazy="selectin",
+        init=False,
+    )
 
 
 class ProductSuggestion(Base):
@@ -143,6 +150,12 @@ class ProductVariant(Base, TimestampMixin):
         lazy="selectin",
         init=False,
         viewonly=True,
+    )
+    images: Mapped[list["ProductImage"]] = relationship(
+        "ProductImage",
+        foreign_keys="ProductImage.variant_id",
+        lazy="selectin",
+        init=False,
     )
 
 

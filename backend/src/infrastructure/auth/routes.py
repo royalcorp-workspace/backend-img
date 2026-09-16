@@ -30,12 +30,18 @@ from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
 from .oauth import OAUTH_STATE_TTL_SECONDS, oauth_account_service, oauth_providers, oauth_state_storage
+from crudauth.transports.bearer.tokens import TokenType, verify_token
+from crudauth.transports.bearer.transport import TOKEN_VERSION_CLAIM
 from .setup import _bearer_transport
 from .setup import auth as crud_auth
 
 logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str | None = None
 
 
 class LoginForm(BaseModel):
@@ -187,6 +193,7 @@ async def login(
     return {
         "csrf_token": csrf_token,
         "access_token": token_body["access_token"],
+        "refresh_token": token_body.get("refresh_token"),
         "token_type": token_body.get("token_type", "bearer"),
         "user": {
             "id": user_id,
@@ -272,7 +279,7 @@ async def firebase_login(
     db: AsyncSessionDep,
     response: Response,
     body: FirebaseLoginRequest,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     firebase_token = body.firebase_token
 
     verified_claims = verify_firebase_id_token(firebase_token)
@@ -387,6 +394,7 @@ async def firebase_login(
     return {
         "csrf_token": csrf_token,
         "access_token": token_body["access_token"],
+        "refresh_token": token_body.get("refresh_token"),
         "token_type": token_body.get("token_type", "bearer"),
         "user": {
             "id": user_id,
@@ -465,8 +473,96 @@ async def refresh_csrf_token(
         user_id=session.user_id, session_id=session_id, expiration_seconds=ttl_seconds
     )
     sessions.set_csrf_cookie(response, csrf_token, max_age=ttl_seconds)
-
     return {"csrf_token": csrf_token}
+
+
+@router.post(
+    "/refresh",
+    summary="Refresh Access Token",
+    description="""
+            Generates a new access token and refresh token using a valid refresh token.
+            Accepts the refresh token via JSON body ({"refresh_token": "..."}),
+            Authorization Bearer header, or HTTP-only refresh cookie.
+            """,
+    responses={
+        200: {"description": "New access and refresh tokens generated successfully"},
+        401: {"description": "Refresh token missing, invalid, expired, or revoked"},
+    },
+)
+@router.post(
+    "/refresh-token",
+    summary="Refresh Access Token (Alias)",
+    description="Alias endpoint to refresh access and refresh tokens.",
+    responses={
+        200: {"description": "New access and refresh tokens generated successfully"},
+        401: {"description": "Refresh token missing, invalid, expired, or revoked"},
+    },
+)
+async def refresh_access_token(
+    request: Request,
+    response: Response,
+    db: AsyncSessionDep,
+    body: RefreshTokenRequest | None = None,
+) -> dict[str, Any]:
+    token = body.refresh_token if body and body.refresh_token else None
+
+    # 1. Fallback to raw JSON body if body object wasn't populated
+    if not token:
+        try:
+            raw_body = await request.json()
+            if isinstance(raw_body, dict):
+                token = raw_body.get("refresh_token")
+        except Exception:
+            pass
+
+    # 2. Fallback to Authorization header
+    if not token:
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+
+    # 3. Fallback to cookie
+    if not token:
+        token = request.cookies.get(_bearer_transport.refresh_cookie_name) or request.cookies.get("refresh_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing",
+        )
+
+    runtime = _bearer_transport.runtime
+    payload = verify_token(
+        token, runtime.secret_key, TokenType.REFRESH, algorithm=runtime.algorithm
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    user = await runtime.repo.get_by_id(db, payload.get("sub"))
+    if user is None or not runtime.repo.is_active(user):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+
+    token_version = payload.get(TOKEN_VERSION_CLAIM, 0)
+    user_version = runtime.repo.token_version(user)
+    if token_version != user_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+
+    token_body = _bearer_transport.issue_tokens(user, response=response)
+
+    return {
+        "access_token": token_body["access_token"],
+        "refresh_token": token_body.get("refresh_token") or token,
+        "token_type": token_body.get("token_type", "bearer"),
+    }
 
 
 @router.get(

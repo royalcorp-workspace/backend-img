@@ -2,7 +2,7 @@ import re
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -208,6 +208,8 @@ def _build_product_groups(product_dict: dict[str, Any]) -> None:
             "total_stock": stock,
             "completenesses": comps,
             "thicknesses": thicks,
+            "image": next((v.get("image") for v in var_list if v.get("image")), None),
+            "image_url": next((v.get("image_url") for v in var_list if v.get("image_url")), None),
             "variants": var_list,
         })
 
@@ -234,6 +236,83 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
         "fixed": "Ongkos Kirim Tetap (Fixed Rate)",
         "dimension": "Hitung dari Dimensi & Berat",
     }
+
+    all_images = [
+        {
+            "id": img.id,
+            "product_id": img.product_id,
+            "image": get_media_url(img.image),
+            "image_url": get_media_url(img.image),
+            "alt_text": img.alt_text,
+            "variant_id": img.variant_id,
+            "created_at": img.created_at,
+            "updated_at": img.updated_at,
+        }
+        for img in (product.images or [])
+        if not getattr(img, "deleted", False)
+    ]
+    header_images = [img for img in all_images if img["variant_id"] is None]
+
+    variant_images_map: dict[str, list[dict[str, Any]]] = {}
+    for img in all_images:
+        if img["variant_id"]:
+            variant_images_map.setdefault(str(img["variant_id"]), []).append(img)
+
+    variants_list = []
+    for v in (product.variants or []):
+        if getattr(v, "deleted", False):
+            continue
+        v_imgs = variant_images_map.get(str(v.id), [])
+        if not v_imgs and getattr(v, "images", None):
+            v_imgs = [
+                {
+                    "id": img.id,
+                    "product_id": img.product_id,
+                    "image": get_media_url(img.image),
+                    "image_url": get_media_url(img.image),
+                    "alt_text": img.alt_text,
+                    "variant_id": img.variant_id,
+                    "created_at": img.created_at,
+                    "updated_at": img.updated_at,
+                }
+                for img in v.images
+                if not getattr(img, "deleted", False)
+            ]
+        v_primary_img = None
+        if v_imgs:
+            v_primary_img = v_imgs[0]["image_url"]
+        elif v.attributes and v.attributes.get("image"):
+            v_primary_img = get_media_url(v.attributes.get("image"))
+        elif v.attributes and v.attributes.get("image_url"):
+            v_primary_img = get_media_url(v.attributes.get("image_url"))
+
+        v_dict = {
+            "id": v.id,
+            "product_id": v.product_id,
+            "sku": v.sku,
+            "variant_name": v.variant_name,
+            "base_price": v.base_price,
+            "sell_price": v.sell_price,
+            "shipping_cost": float(getattr(v, "shipping_cost", 0.0) or 0.0),
+            "stock_qty": v.stock_qty,
+            "attributes": _normalize_variant_attributes(v.attributes, v.variant_name),
+            "image": v_primary_img,
+            "image_url": v_primary_img,
+            "images": v_imgs,
+            "width": (v.attributes or {}).get("width") if v.attributes and (v.attributes.get("width") is not None) else getattr(v, "width", None),
+            "length": (v.attributes or {}).get("length") if v.attributes and (v.attributes.get("length") is not None) else getattr(v, "length", None),
+            "height": (v.attributes or {}).get("height") if v.attributes and (v.attributes.get("height") is not None) else getattr(v, "height", None),
+            "weight": (v.attributes or {}).get("weight") if v.attributes and (v.attributes.get("weight") is not None) else getattr(v, "weight", None),
+            "status": getattr(v, "status", True) if getattr(v, "status", None) is not None else ((v.attributes or {}).get("status", True) if v.attributes else True),
+            "creator": v.creator,
+            "editor": v.editor,
+            "deleted": v.deleted,
+            "created_at": v.created_at,
+            "updated_at": v.updated_at,
+            "price_product_settings": [],
+            "final_price": 0.0,
+        }
+        variants_list.append(v_dict)
 
     return {
         "id": product.id,
@@ -265,47 +344,9 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
         "deleted": product.deleted,
         "created_at": product.created_at,
         "updated_at": product.updated_at,
-        "images": [
-            {
-                "id": img.id,
-                "product_id": img.product_id,
-                "image": get_media_url(img.image),
-                "image_url": get_media_url(img.image),
-                "alt_text": img.alt_text,
-                "variant_id": img.variant_id,
-                "created_at": img.created_at,
-                "updated_at": img.updated_at,
-            }
-            for img in (product.images or [])
-            if not getattr(img, "deleted", False)
-        ],
-        "variants": [
-            {
-                "id": v.id,
-                "product_id": v.product_id,
-                "sku": v.sku,
-                "variant_name": v.variant_name,
-                "base_price": v.base_price,
-                "sell_price": v.sell_price,
-                "shipping_cost": float(getattr(v, "shipping_cost", 0.0) or 0.0),
-                "stock_qty": v.stock_qty,
-                "attributes": _normalize_variant_attributes(v.attributes, v.variant_name),
-                "width": (v.attributes or {}).get("width") if v.attributes and (v.attributes.get("width") is not None) else getattr(v, "width", None),
-                "length": (v.attributes or {}).get("length") if v.attributes and (v.attributes.get("length") is not None) else getattr(v, "length", None),
-                "height": (v.attributes or {}).get("height") if v.attributes and (v.attributes.get("height") is not None) else getattr(v, "height", None),
-                "weight": (v.attributes or {}).get("weight") if v.attributes and (v.attributes.get("weight") is not None) else getattr(v, "weight", None),
-                "status": getattr(v, "status", True) if getattr(v, "status", None) is not None else ((v.attributes or {}).get("status", True) if v.attributes else True),
-                "creator": v.creator,
-                "editor": v.editor,
-                "deleted": v.deleted,
-                "created_at": v.created_at,
-                "updated_at": v.updated_at,
-                "price_product_settings": [],
-                "final_price": 0.0,
-            }
-            for v in (product.variants or [])
-            if not getattr(v, "deleted", False)
-        ],
+        "images": all_images,
+        "header_images": header_images,
+        "variants": variants_list,
         "colors": [
             {
                 "id": c.id,
@@ -362,6 +403,28 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
 
 
 def _variant_to_dict(variant: ProductVariant) -> dict[str, Any]:
+    v_imgs = [
+        {
+            "id": img.id,
+            "product_id": img.product_id,
+            "image": get_media_url(img.image),
+            "image_url": get_media_url(img.image),
+            "alt_text": img.alt_text,
+            "variant_id": img.variant_id,
+            "created_at": img.created_at,
+            "updated_at": img.updated_at,
+        }
+        for img in (getattr(variant, "images", []) or [])
+        if not getattr(img, "deleted", False)
+    ]
+    primary_img = None
+    if v_imgs:
+        primary_img = v_imgs[0]["image_url"]
+    elif variant.attributes and variant.attributes.get("image"):
+        primary_img = get_media_url(variant.attributes.get("image"))
+    elif variant.attributes and variant.attributes.get("image_url"):
+        primary_img = get_media_url(variant.attributes.get("image_url"))
+
     res = {
         "id": variant.id,
         "product_id": variant.product_id,
@@ -373,6 +436,9 @@ def _variant_to_dict(variant: ProductVariant) -> dict[str, Any]:
         "shipping_cost": float(getattr(variant, "shipping_cost", 0.0) or 0.0),
         "stock_qty": variant.stock_qty,
         "attributes": _normalize_variant_attributes(variant.attributes, variant.variant_name),
+        "image": primary_img,
+        "image_url": primary_img,
+        "images": v_imgs,
         "width": (variant.attributes or {}).get("width") if variant.attributes and (variant.attributes.get("width") is not None) else getattr(variant, "width", None),
         "length": (variant.attributes or {}).get("length") if variant.attributes and (variant.attributes.get("length") is not None) else getattr(variant, "length", None),
         "height": (variant.attributes or {}).get("height") if variant.attributes and (variant.attributes.get("height") is not None) else getattr(variant, "height", None),
@@ -473,7 +539,11 @@ class ProductService:
         )
 
         for key, value in filters.items():
-            if "__" in key:
+            if key in ("category_id", "category_id__eq"):
+                cond = or_(Product.category_id == value, Product.brand_id == value)
+                query = query.where(cond)
+                count_query = count_query.where(cond)
+            elif "__" in key:
                 field_name, operator = key.rsplit("__", 1)
                 column = getattr(Product, field_name, None)
                 if column is not None:
