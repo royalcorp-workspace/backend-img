@@ -13,6 +13,7 @@ from ...infrastructure.logging import get_logger
 from ..add_to_cart.models import AddToCartItem
 from ..common.exceptions import ResourceNotFoundError
 from ..customer.models import Customer
+from ..product.models import Product, ProductVariant
 from .crud import crud_orders
 from .models import Order, OrderItem, OrderVoid, VoidOrder
 from .schemas import OrderCreate
@@ -164,6 +165,8 @@ def _order_to_dict(order: Order, void_data: dict[str, Any] | None = None) -> dic
                 "product_variant_id": item.product_variant_id,
                 "quantity": item.quantity,
                 "unit_price": _safe_float(item.unit_price),
+                "base_price": _safe_float((item.meta or {}).get("base_price")) if (item.meta or {}).get("base_price") is not None else _safe_float(item.unit_price),
+                "after_disc_price": _safe_float((item.meta or {}).get("after_disc_price")) if (item.meta or {}).get("after_disc_price") is not None else (_safe_float(item.total) / item.quantity if item.quantity else _safe_float(item.unit_price)),
                 "discount_nominal": _safe_float(item.discount_nominal),
                 "discount_percent": _safe_float(item.discount_percent),
                 "total": _safe_float(item.total),
@@ -189,6 +192,7 @@ def _order_to_dict(order: Order, void_data: dict[str, Any] | None = None) -> dic
                         "id": item.variant.id,
                         "product_id": item.variant.product_id,
                         "variant_name": item.variant.variant_name,
+                        "base_price": _safe_float(item.variant.base_price),
                         "sell_price": _safe_float(item.variant.sell_price),
                         "sku": item.variant.sku,
                     }
@@ -228,6 +232,8 @@ def _void_order_to_dict(void_order: VoidOrder) -> dict[str, Any]:
             "product_variant_id": variant_id,
             "quantity": int(item.get("quantity") or 1),
             "unit_price": _safe_float(item.get("unit_price")),
+            "base_price": _safe_float((item.get("meta") or {}).get("base_price")) if isinstance(item.get("meta"), dict) and (item.get("meta") or {}).get("base_price") is not None else _safe_float(item.get("unit_price")),
+            "after_disc_price": _safe_float((item.get("meta") or {}).get("after_disc_price")) if isinstance(item.get("meta"), dict) and (item.get("meta") or {}).get("after_disc_price") is not None else (_safe_float(item.get("total")) / int(item.get("quantity") or 1) if int(item.get("quantity") or 1) > 0 else _safe_float(item.get("unit_price"))),
             "discount_nominal": _safe_float(item.get("discount_nominal")),
             "discount_percent": _safe_float(item.get("discount_percent")),
             "total": _safe_float(item.get("total")),
@@ -642,31 +648,150 @@ class OrderService:
         await db.flush()
 
         # Handle Cart Flow
+        created_order_items = []
         if order_in.cart_item_ids:
             for cart_item_id in order_in.cart_item_ids:
                 cart_item = await db.scalar(select(AddToCartItem).where(AddToCartItem.id == cart_item_id))
                 if cart_item:
+                    variant = None
+                    if cart_item.product_variant_id:
+                        variant = await db.scalar(select(ProductVariant).where(ProductVariant.id == cart_item.product_variant_id))
+                    
+                    product = None
+                    if not variant and cart_item.product_id:
+                        product = await db.scalar(select(Product).where(Product.id == cart_item.product_id))
+
+                    cart_meta = dict(cart_item.meta) if isinstance(cart_item.meta, dict) else {}
+                    base_price = _safe_float(cart_meta.get("base_price"))
+                    if base_price <= 0.0:
+                        if variant and _safe_float(variant.base_price) > 0:
+                            base_price = _safe_float(variant.base_price)
+                        elif variant and _safe_float(variant.sell_price) > 0:
+                            base_price = _safe_float(variant.sell_price)
+                        elif product:
+                            base_price = _safe_float(getattr(product, "base_price", 0.0))
+                    if base_price <= 0.0:
+                        base_price = _safe_float(cart_item.unit_price)
+
+                    qty = cart_item.quantity or 1
+
+                    after_disc_unit = _safe_float(cart_meta.get("after_disc_price") or cart_meta.get("sell_price"))
+                    if after_disc_unit <= 0.0:
+                        if _safe_float(cart_item.total) > 0 and qty > 0:
+                            after_disc_unit = _safe_float(cart_item.total) / qty
+                        elif variant and _safe_float(variant.sell_price) > 0:
+                            after_disc_unit = _safe_float(variant.sell_price)
+                        else:
+                            after_disc_unit = _safe_float(cart_item.unit_price)
+
+                    if after_disc_unit <= 0.0:
+                        after_disc_unit = base_price
+                    if base_price < after_disc_unit:
+                        base_price = after_disc_unit
+
+                    item_total = _safe_float(cart_item.total) if (_safe_float(cart_item.total) > 0) else (after_disc_unit * qty)
+                    actual_unit_after_disc = item_total / qty if qty > 0 else after_disc_unit
+
+                    unit_discount = max(0.0, base_price - actual_unit_after_disc)
+                    discount_nominal = unit_discount * qty
+                    discount_percent = round((discount_nominal / (base_price * qty)) * 100, 2) if (base_price * qty) > 0 else 0.0
+
+                    cart_meta["base_price"] = base_price
+                    cart_meta["original_price"] = base_price
+                    cart_meta["after_disc_price"] = actual_unit_after_disc
+                    cart_meta["discount_nominal"] = discount_nominal
+                    cart_meta["discount_percent"] = discount_percent
+
                     order_item = OrderItem(
                         order_id=order.id,
                         product_id=cart_item.product_id,
                         product_variant_id=cart_item.product_variant_id,
-                        quantity=cart_item.quantity,
-                        unit_price=cart_item.unit_price,
-                        discount_nominal=cart_item.discount_nominal,
-                        discount_percent=cart_item.discount_percent,
-                        total=cart_item.total,
+                        quantity=qty,
+                        unit_price=base_price,
+                        discount_nominal=discount_nominal,
+                        discount_percent=discount_percent,
+                        total=item_total,
                         name=cart_item.name,
                         item_notes=cart_item.item_notes,
-                        meta=cart_item.meta,
+                        meta=cart_meta,
                     )
                     db.add(order_item)
+                    created_order_items.append(order_item)
                     await db.delete(cart_item)
         # Handle Direct Purchase Flow
         elif order_in.items:
             for item_in in order_in.items:
                 item_data = item_in.model_dump(exclude_unset=True)
+                variant = None
+                if item_in.product_variant_id:
+                    variant = await db.scalar(select(ProductVariant).where(ProductVariant.id == item_in.product_variant_id))
+                
+                product = None
+                if not variant and item_in.product_id:
+                    product = await db.scalar(select(Product).where(Product.id == item_in.product_id))
+
+                item_meta = dict(item_data.get("meta") or {})
+                base_price = _safe_float(item_meta.get("base_price") or getattr(item_in, "base_price", None))
+                if base_price <= 0.0:
+                    if variant and _safe_float(variant.base_price) > 0:
+                        base_price = _safe_float(variant.base_price)
+                    elif variant and _safe_float(variant.sell_price) > 0:
+                        base_price = _safe_float(variant.sell_price)
+                    elif product:
+                        base_price = _safe_float(getattr(product, "base_price", 0.0))
+                if base_price <= 0.0:
+                    base_price = _safe_float(item_in.unit_price)
+
+                qty = item_in.quantity or 1
+
+                after_disc_unit = _safe_float(item_meta.get("after_disc_price") or getattr(item_in, "after_disc_price", None))
+                if after_disc_unit <= 0.0:
+                    if _safe_float(item_in.total) > 0 and qty > 0:
+                        after_disc_unit = _safe_float(item_in.total) / qty
+                    elif variant and _safe_float(variant.sell_price) > 0:
+                        after_disc_unit = _safe_float(variant.sell_price)
+                    else:
+                        after_disc_unit = _safe_float(item_in.unit_price)
+
+                if after_disc_unit <= 0.0:
+                    after_disc_unit = base_price
+                if base_price < after_disc_unit:
+                    base_price = after_disc_unit
+
+                item_total = _safe_float(item_in.total) if (_safe_float(item_in.total) > 0) else (after_disc_unit * qty)
+                actual_unit_after_disc = item_total / qty if qty > 0 else after_disc_unit
+
+                unit_discount = max(0.0, base_price - actual_unit_after_disc)
+                discount_nominal = unit_discount * qty
+                discount_percent = round((discount_nominal / (base_price * qty)) * 100, 2) if (base_price * qty) > 0 else 0.0
+
+                item_meta["base_price"] = base_price
+                item_meta["original_price"] = base_price
+                item_meta["after_disc_price"] = actual_unit_after_disc
+                item_meta["discount_nominal"] = discount_nominal
+                item_meta["discount_percent"] = discount_percent
+
+                item_data["unit_price"] = base_price
+                item_data["discount_nominal"] = discount_nominal
+                item_data["discount_percent"] = discount_percent
+                item_data["total"] = item_total
+                item_data["meta"] = item_meta
+
                 order_item = OrderItem(order_id=order.id, **item_data)
                 db.add(order_item)
+                created_order_items.append(order_item)
+
+        # Recalculate order totals if items were created
+        if created_order_items:
+            total_items_subtotal = sum((it.unit_price or 0.0) * (it.quantity or 1) for it in created_order_items)
+            total_items_discount = sum((it.discount_nominal or 0.0) for it in created_order_items)
+            total_items_final = sum((it.total or 0.0) for it in created_order_items)
+            voucher_nom = _safe_float(order.voucher_nominal)
+            ship_cost = _safe_float(order.shipping_cost)
+
+            order.subtotal = total_items_subtotal
+            order.discount = total_items_discount + voucher_nom
+            order.total = max(0.0, total_items_final - voucher_nom + ship_cost)
 
         await db.commit()
         return await self.get_by_id(db, order.id)

@@ -170,38 +170,60 @@ class ContentService:
 
         formatted_bestsellers = [_format_product_card(p) for p in bestseller_products]
 
-        # 3. Preload Categories (parent_id is None, limit 8)
-        cat_stmt = (
-            select(Category)
-            .where(
-                Category.deleted == False,
-                or_(Category.status.is_(True), Category.status.is_(None)),
-                Category.parent_id == None,
+        # 3. Preload Newest Products (10 products)
+        new_stmt = (
+            select(Product)
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.variants),
+                selectinload(Product.brand),
+                selectinload(Product.category),
+                selectinload(Product.price_product_settings),
             )
-            .order_by(Category.sort_order.asc())
-            .limit(8)
+            .where(
+                Product.deleted == False,
+                or_(Product.status == 1, Product.status.is_(None)),
+            )
+            .order_by(Product.created_at.desc())
+            .limit(10)
         )
-        cat_res = await db.execute(cat_stmt)
-        categories = cat_res.scalars().all()
-        formatted_categories = []
-        for c in categories:
-            cnt_stmt = select(func.count(Product.id)).where(Product.category_id == c.id, Product.deleted == False)
-            cnt_res = await db.execute(cnt_stmt)
-            p_count = cnt_res.scalar() or 0
-            formatted_categories.append({
-                "id": c.id,
-                "name": c.name,
-                "slug": c.slug,
-                "image": get_media_url(c.image),
-                "banner_web": get_media_url(getattr(c, "banner_web", None)),
-                "banner_mobile": get_media_url(getattr(c, "banner_mobile", None)),
-                "banner": get_media_url(getattr(c, "banner_web", None) or getattr(c, "banner_mobile", None)),
-                "tagline": c.tagline,
-                "description": c.description,
-                "products_count": p_count,
-            })
+        new_res = await db.execute(new_stmt)
+        formatted_newest = [_format_product_card(p) for p in new_res.scalars().all()]
 
-        # 4. Preload Brands (only brands with active products)
+        # 4. Preload Cheapest Products (10 products ordered by min variant sell_price asc)
+        cheapest_subq = (
+            select(
+                ProductVariant.product_id,
+                func.min(ProductVariant.sell_price).label("min_sell_price"),
+            )
+            .where(
+                ProductVariant.deleted == False,
+                ProductVariant.sell_price > 0,
+            )
+            .group_by(ProductVariant.product_id)
+            .subquery()
+        )
+        cheap_stmt = (
+            select(Product)
+            .join(cheapest_subq, Product.id == cheapest_subq.c.product_id)
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.variants),
+                selectinload(Product.brand),
+                selectinload(Product.category),
+                selectinload(Product.price_product_settings),
+            )
+            .where(
+                Product.deleted == False,
+                or_(Product.status == 1, Product.status.is_(None)),
+            )
+            .order_by(cheapest_subq.c.min_sell_price.asc())
+            .limit(10)
+        )
+        cheap_res = await db.execute(cheap_stmt)
+        formatted_cheapest = [_format_product_card(p) for p in cheap_res.scalars().all()]
+
+        # 5. Preload Brands for Promo Brands
         br_stmt = (
             select(Brand)
             .where(
@@ -221,21 +243,8 @@ class ContentService:
         )
         br_res = await db.execute(br_stmt)
         brands = br_res.scalars().all()
-        formatted_brands = [
-            {
-                "id": b.id,
-                "name": b.name,
-                "slug": b.slug,
-                "logo": get_media_url(getattr(b, "logo", None)),
-                "banner_web": get_media_url(getattr(b, "banner_web", None)),
-                "banner_mobile": get_media_url(getattr(b, "banner_mobile", None)),
-                "is_featured": b.is_featured,
-                "status": b.status,
-            }
-            for b in brands
-        ]
 
-        # 5. Preload Promo Brands (brands with top 3 discounted/promoted products)
+        # 6. Preload Promo Brands (brands with top 3 discounted/promoted products)
         formatted_promo_brands = []
         for b in brands:
             b_prod_stmt = (
@@ -270,7 +279,7 @@ class ContentService:
             if len(formatted_promo_brands) >= 6:
                 break
 
-        # 6. Preload Bundling
+        # 7. Preload Bundling
         bund_stmt = (
             select(ProductBundling)
             .options(
@@ -336,7 +345,7 @@ class ContentService:
                 ],
             })
 
-        # 7. Preload Recommended (products not in bestsellers)
+        # 8. Preload Recommended (products not in bestsellers)
         rec_stmt = (
             select(Product)
             .options(
@@ -356,131 +365,90 @@ class ContentService:
         rec_res = await db.execute(rec_stmt)
         formatted_recommended = [_format_product_card(p) for p in rec_res.scalars().all()]
 
-        # 8. Preload Banners
-        ban_stmt = (
-            select(Banner)
-            .where(Banner.deleted == False, or_(Banner.is_active.is_(True), Banner.is_active.is_(None)))
-            .order_by(Banner.sort_order.asc())
-        )
-        ban_res = await db.execute(ban_stmt)
-        formatted_banners = [
-            {
-                "id": b.id,
-                "title": b.title,
-                "link_url": b.link_url,
-                "image_web_url": get_media_url(b.image_web_url),
-                "image_mobile_url": get_media_url(b.image_mobile_url or b.image_web_url),
-                "target_type": b.target_type,
-                "target_id": b.target_id,
-                "type": b.type,
-                "sort_order": b.sort_order,
-            }
-            for b in ban_res.scalars().all()
-        ]
-
-        # 9. Preload Events with Popups
-        now = datetime.now()
-        ev_stmt = (
-            select(Event)
-            .options(selectinload(Event.popups))
-            .where(
-                Event.deleted == False,
-                or_(Event.is_active.is_(True), Event.is_active.is_(None)),
-                or_(Event.start_date.is_(None), Event.start_date <= now),
-                or_(Event.end_date.is_(None), Event.end_date >= now),
-            )
-        )
-        ev_res = await db.execute(ev_stmt)
-        formatted_events = [
-            {
-                "id": ev.id,
-                "title": ev.title,
-                "slug": ev.slug,
-                "description": ev.description,
-                "banner_image": get_media_url(ev.banner_image),
-                "popups": [
-                    {
-                        "id": pop.id,
-                        "title": pop.title,
-                        "image_url": get_media_url(pop.image_url),
-                        "link_url": pop.link_url,
-                        "button_text": pop.button_text,
-                    }
-                    for pop in (ev.popups or [])
-                    if pop.is_active
-                ],
-            }
-            for ev in ev_res.scalars().unique().all()
-        ]
-
         # Helper to map section_key to items
         def _get_items_for_key(sec_key: str, sec_meta: dict[str, Any] | None) -> list[Any]:
             k = sec_key.lower()
-            if "kategori" in k or "category" in k:
+            if any(x in k for x in ["kategori", "category", "banner", "slider", "hero", "event", "popup"]):
                 return []
             elif "best" in k:
                 return formatted_bestsellers
+            elif "terbaru" in k or "new" in k:
+                return formatted_newest
+            elif "termurah" in k or "cheap" in k or "murah" in k:
+                return formatted_cheapest
             elif "pilihan" in k or ("brand" in k and "promo" not in k) or "merek" in k:
-                return formatted_brands
+                return formatted_newest
             elif "promo" in k:
                 return formatted_promo_brands
             elif "spesial" in k or "special" in k or "sorotan" in k or "featured" in k:
                 feat_id = (sec_meta or {}).get("featured_product_id")
                 if feat_id:
                     feat = next(
-                        (p for p in formatted_bestsellers + formatted_recommended if str(p.get("id")) == str(feat_id)),
+                        (p for p in formatted_bestsellers + formatted_newest + formatted_recommended if str(p.get("id")) == str(feat_id)),
                         None,
                     )
                     if feat:
                         return [feat]
-                return [formatted_bestsellers[0]] if formatted_bestsellers else (formatted_recommended[:1] if formatted_recommended else [])
+                return [formatted_bestsellers[0]] if formatted_bestsellers else (formatted_newest[:1] if formatted_newest else (formatted_recommended[:1] if formatted_recommended else []))
             elif "bundl" in k or "paket" in k:
                 return formatted_bundles
             elif "rekomendasi" in k or "recommend" in k:
                 return formatted_recommended
-            elif "banner" in k or "slider" in k or "hero" in k:
-                return formatted_banners
-            elif "event" in k or "popup" in k:
-                return formatted_events
             return []
 
-        # If DB sections exist, use them and attach items
+        # If DB sections exist, use them and attach items (only product sections)
         result_sections = []
         seen_keys = set()
         if db_sections:
             for sec in db_sections:
-                k = sec.section_key
-                if "kategori" in k.lower() or "category" in k.lower():
+                k = sec.section_key.lower()
+                # Skip non-product sections completely
+                if any(x in k for x in ["kategori", "category", "banner", "slider", "hero", "event", "popup"]):
                     continue
-                items = _get_items_for_key(k, sec.meta)
+
+                # If pilihan_brand, convert to product_terbaru
+                if "pilihan" in k or ("brand" in k and "promo" not in k) or "merek" in k or "terbaru" in k or "new" in k:
+                    target_key = "product_terbaru"
+                    target_title = "Produk Terbaru"
+                    items = formatted_newest
+                elif "termurah" in k or "cheap" in k or "murah" in k:
+                    target_key = "product_termurah"
+                    target_title = "Produk Termurah"
+                    items = formatted_cheapest
+                else:
+                    target_key = sec.section_key
+                    target_title = sec.title
+                    items = _get_items_for_key(sec.section_key, sec.meta)
+
                 if not items:
                     continue
-                seen_keys.add(k.lower())
+                if target_key in seen_keys:
+                    continue
+                seen_keys.add(target_key)
                 result_sections.append({
                     "id": sec.id,
-                    "section_key": sec.section_key,
-                    "title": sec.title,
+                    "section_key": target_key,
+                    "title": target_title,
                     "sort_order": sec.sort_order,
                     "is_visible": sec.is_visible,
                     "meta": sec.meta,
                     "items": items,
                 })
 
-        # Default fallback sections if not defined in DB (excluding kategori)
+        # Default fallback sections (all product-based)
         default_sections = [
-            {"section_key": "banners", "title": "Banner Promo", "items": formatted_banners, "sort_order": 1},
-            {"section_key": "best_seller", "title": "Best Seller", "items": formatted_bestsellers, "sort_order": 2},
-            {"section_key": "pilihan_brand", "title": "Pilihan Brand", "items": formatted_brands, "sort_order": 3},
-            {"section_key": "promo_brand", "title": "Promo Brand", "items": formatted_promo_brands, "sort_order": 4},
+            {"section_key": "best_seller", "title": "Produk Unggulan", "items": formatted_bestsellers, "sort_order": 1},
+            {"section_key": "product_terbaru", "title": "Produk Terbaru", "items": formatted_newest, "sort_order": 2},
+            {"section_key": "product_termurah", "title": "Produk Termurah", "items": formatted_cheapest, "sort_order": 3},
+            {"section_key": "promo_brand", "title": "Promo Brand Pilihan", "items": formatted_promo_brands, "sort_order": 4},
             {
                 "section_key": "spesial",
                 "title": "Produk Spesial",
-                "items": [formatted_bestsellers[0]] if formatted_bestsellers else [],
+                "items": [formatted_bestsellers[0]] if formatted_bestsellers else (formatted_newest[:1] if formatted_newest else []),
                 "sort_order": 5,
             },
-            {"section_key": "bundling", "title": "Paket Bundling", "items": formatted_bundles, "sort_order": 6},
-            {"section_key": "rekomendasi", "title": "Rekomendasi Untuk Anda", "items": formatted_recommended, "sort_order": 7},
-            {"section_key": "events", "title": "Event Popups", "items": formatted_events, "sort_order": 8},
+            {"section_key": "bundling", "title": "Paket Spesial / Bundling", "items": formatted_bundles, "sort_order": 6},
+            {"section_key": "rekomendasi", "title": "Rekomendasi Produk", "items": formatted_recommended, "sort_order": 7},
         ]
 
         if not result_sections:
@@ -502,8 +470,9 @@ class ContentService:
             for ds in default_sections:
                 if not ds["items"]:
                     continue
-                if not any(ds["section_key"] in k for k in seen_keys):
+                if ds["section_key"] not in seen_keys:
                     max_sort += 1
+                    seen_keys.add(ds["section_key"])
                     result_sections.append({
                         "id": str(uuid.uuid4()),
                         "section_key": ds["section_key"],
@@ -514,9 +483,11 @@ class ContentService:
                         "items": ds["items"],
                     })
 
+        # Ensure only sections with items and strictly containing products are returned
+        excluded_keys = ["kategori", "category", "banner", "slider", "hero", "event", "popup", "pilihan_brand"]
         result_sections = [
             s for s in result_sections
-            if s.get("items") and not ("kategori" in s.get("section_key", "").lower() or "category" in s.get("section_key", "").lower())
+            if s.get("items") and not any(ex in s.get("section_key", "").lower() for ex in excluded_keys)
         ]
         result_sections.sort(key=lambda s: s.get("sort_order", 0))
         return result_sections

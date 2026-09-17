@@ -14,6 +14,8 @@ class OrderItemBase(BaseModel):
     product_variant_id: UUID | None = None
     quantity: int = 1
     unit_price: float = 0.0
+    base_price: float | None = None
+    after_disc_price: float | None = None
     discount_nominal: float = 0.0
     discount_percent: float = 0.0
     total: float = 0.0

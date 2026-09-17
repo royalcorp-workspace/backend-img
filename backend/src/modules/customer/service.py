@@ -2,14 +2,14 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import ResourceNotFoundError
 from ..region.models import City, Province, SubDistrict
 from .crud import crud_customers
-from .models import Address
+from .models import Address, Customer
 from .schemas import AddressCreate, CustomerCreate, CustomerRead, CustomerUpdate
 
 logger = get_logger()
@@ -142,9 +142,28 @@ class CustomerService:
 
     async def create(self, db: AsyncSession, customer_in: CustomerCreate) -> dict[str, Any]:
         customer_data = customer_in.model_dump(exclude={"addresses"})
-        customer = await crud_customers.create(db=db, object=customer_data, commit=False)
-        cust_id = customer.get("id") if isinstance(customer, dict) else customer.id
-        user_id = customer_data.get("user_id")
+        email = customer_data.get("email")
+        existing = None
+        if email:
+            clean_email = email.strip().lower()
+            stmt = select(Customer).where(func.lower(Customer.email) == clean_email, Customer.deleted == False)
+            res = await db.execute(stmt)
+            existing = res.scalar_one_or_none()
+
+        if existing:
+            if customer_data.get("name"):
+                existing.name = customer_data["name"]
+            if customer_data.get("phone"):
+                existing.phone = customer_data["phone"]
+            if customer_data.get("user_id") and not existing.user_id:
+                existing.user_id = customer_data["user_id"]
+            db.add(existing)
+            cust_id = existing.id
+            user_id = existing.user_id
+        else:
+            customer = await crud_customers.create(db=db, object=customer_data, commit=False)
+            cust_id = customer.get("id") if isinstance(customer, dict) else customer.id
+            user_id = customer_data.get("user_id")
 
         if customer_in.addresses:
             for addr_in in customer_in.addresses:
