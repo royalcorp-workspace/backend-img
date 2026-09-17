@@ -28,6 +28,8 @@ def _item_to_dict(item: AddToCartItem) -> dict[str, Any]:
         "name": item.name,
         "quantity": item.quantity,
         "unit_price": item.unit_price,
+        "base_price": (meta.get("base_price") if isinstance(meta, dict) else None) or item.unit_price,
+        "after_disc_price": (meta.get("after_disc_price") if isinstance(meta, dict) else None) or (item.total / item.quantity if item.quantity else item.unit_price),
         "total": item.total,
         "discount_nominal": item.discount_nominal,
         "discount_percent": item.discount_percent,
@@ -47,6 +49,7 @@ def _item_to_dict(item: AddToCartItem) -> dict[str, Any]:
             "id": item.variant.id,
             "product_id": item.variant.product_id,
             "variant_name": item.variant.variant_name,
+            "base_price": item.variant.base_price,
             "sell_price": item.variant.sell_price,
             "sku": item.variant.sku,
         } if item.variant else None,
@@ -302,21 +305,25 @@ class AddToCartService:
 
             if existing_item:
                 existing_item.quantity += qty_to_add
-                if item_in.unit_price and item_in.unit_price > 0:
-                    existing_item.unit_price = item_in.unit_price
-                if item_in.item_notes:
-                    existing_item.item_notes = item_in.item_notes
-                if item_in.discount_nominal is not None and item_in.discount_nominal > 0:
-                    existing_item.discount_nominal = item_in.discount_nominal
-                if item_in.discount_percent is not None and item_in.discount_percent > 0:
-                    existing_item.discount_percent = item_in.discount_percent
+                b_price = (variant.base_price if variant and variant.base_price and variant.base_price > 0 else (variant.sell_price if variant and variant.sell_price else (item_in.unit_price or existing_item.unit_price or 0.0)))
+                s_price = variant.sell_price if variant and variant.sell_price else (item_in.unit_price or b_price)
+                if b_price < s_price:
+                    b_price = s_price
 
-                existing_item.total = _calculate_item_total(
-                    existing_item.unit_price,
-                    existing_item.quantity,
-                    existing_item.discount_nominal,
-                    existing_item.discount_percent,
-                )
+                existing_item.unit_price = b_price
+                unit_disc = max(0.0, b_price - s_price)
+                existing_item.discount_nominal = unit_disc * existing_item.quantity
+                existing_item.discount_percent = round((unit_disc / b_price) * 100, 2) if b_price > 0 else 0.0
+                existing_item.total = s_price * existing_item.quantity
+
+                ex_meta = dict(existing_item.meta or {})
+                ex_meta["base_price"] = b_price
+                ex_meta["original_price"] = b_price
+                ex_meta["sell_price"] = s_price
+                ex_meta["after_disc_price"] = s_price
+                ex_meta["discount_nominal"] = existing_item.discount_nominal
+                ex_meta["discount_percent"] = existing_item.discount_percent
+                existing_item.meta = ex_meta
             else:
                 item_data = item_in.model_dump(exclude={"sku", "variant_id", "color_id", "color_name", "color_code"} if hasattr(item_in, "sku") else set())
                 item_data.pop("sku", None)
@@ -329,18 +336,28 @@ class AddToCartService:
                 item_data["product_variant_id"] = target_variant_id
                 item_data["quantity"] = qty_to_add
 
-                if not item_data.get("unit_price") and variant and variant.sell_price:
-                    item_data["unit_price"] = variant.sell_price
+                b_price = (variant.base_price if variant and variant.base_price and variant.base_price > 0 else (variant.sell_price if variant and variant.sell_price else (item_in.unit_price or 0.0)))
+                s_price = variant.sell_price if variant and variant.sell_price else (item_in.unit_price or b_price)
+                if b_price < s_price:
+                    b_price = s_price
+
+                item_data["unit_price"] = b_price
+                unit_disc = max(0.0, b_price - s_price)
+                item_data["discount_nominal"] = unit_disc * qty_to_add
+                item_data["discount_percent"] = round((unit_disc / b_price) * 100, 2) if b_price > 0 else 0.0
+                item_data["total"] = s_price * qty_to_add
 
                 if not item_data.get("name") and variant and variant.variant_name:
                     item_data["name"] = variant.variant_name
 
-                item_data["total"] = _calculate_item_total(
-                    item_data.get("unit_price"),
-                    item_data.get("quantity"),
-                    item_data.get("discount_nominal"),
-                    item_data.get("discount_percent"),
-                )
+                n_meta = dict(item_data.get("meta") or {})
+                n_meta["base_price"] = b_price
+                n_meta["original_price"] = b_price
+                n_meta["sell_price"] = s_price
+                n_meta["after_disc_price"] = s_price
+                n_meta["discount_nominal"] = item_data["discount_nominal"]
+                n_meta["discount_percent"] = item_data["discount_percent"]
+                item_data["meta"] = n_meta
 
                 cart_item = AddToCartItem(**item_data)
                 db.add(cart_item)
@@ -422,21 +439,25 @@ class AddToCartService:
 
         if existing_item:
             existing_item.quantity += qty_to_add
-            if item_in.unit_price and item_in.unit_price > 0:
-                existing_item.unit_price = item_in.unit_price
-            if item_in.item_notes:
-                existing_item.item_notes = item_in.item_notes
-            if item_in.discount_nominal is not None and item_in.discount_nominal > 0:
-                existing_item.discount_nominal = item_in.discount_nominal
-            if item_in.discount_percent is not None and item_in.discount_percent > 0:
-                existing_item.discount_percent = item_in.discount_percent
+            b_price = (variant.base_price if variant and variant.base_price and variant.base_price > 0 else (variant.sell_price if variant and variant.sell_price else (item_in.unit_price or existing_item.unit_price or 0.0)))
+            s_price = variant.sell_price if variant and variant.sell_price else (item_in.unit_price or b_price)
+            if b_price < s_price:
+                b_price = s_price
 
-            existing_item.total = _calculate_item_total(
-                existing_item.unit_price,
-                existing_item.quantity,
-                existing_item.discount_nominal,
-                existing_item.discount_percent,
-            )
+            existing_item.unit_price = b_price
+            unit_disc = max(0.0, b_price - s_price)
+            existing_item.discount_nominal = unit_disc * existing_item.quantity
+            existing_item.discount_percent = round((unit_disc / b_price) * 100, 2) if b_price > 0 else 0.0
+            existing_item.total = s_price * existing_item.quantity
+
+            ex_meta = dict(existing_item.meta or {})
+            ex_meta["base_price"] = b_price
+            ex_meta["original_price"] = b_price
+            ex_meta["sell_price"] = s_price
+            ex_meta["after_disc_price"] = s_price
+            ex_meta["discount_nominal"] = existing_item.discount_nominal
+            ex_meta["discount_percent"] = existing_item.discount_percent
+            existing_item.meta = ex_meta
 
             await db.flush()
             _recalculate_add_to_cart_totals(add_to_cart)
@@ -461,18 +482,28 @@ class AddToCartService:
         item_data["product_variant_id"] = target_variant_id
         item_data["quantity"] = qty_to_add
 
-        if not item_data.get("unit_price") and variant and variant.sell_price:
-            item_data["unit_price"] = variant.sell_price
+        b_price = (variant.base_price if variant and variant.base_price and variant.base_price > 0 else (variant.sell_price if variant and variant.sell_price else (item_in.unit_price or 0.0)))
+        s_price = variant.sell_price if variant and variant.sell_price else (item_in.unit_price or b_price)
+        if b_price < s_price:
+            b_price = s_price
+
+        item_data["unit_price"] = b_price
+        unit_disc = max(0.0, b_price - s_price)
+        item_data["discount_nominal"] = unit_disc * qty_to_add
+        item_data["discount_percent"] = round((unit_disc / b_price) * 100, 2) if b_price > 0 else 0.0
+        item_data["total"] = s_price * qty_to_add
 
         if not item_data.get("name") and variant and variant.variant_name:
             item_data["name"] = variant.variant_name
 
-        item_data["total"] = _calculate_item_total(
-            item_data.get("unit_price"),
-            item_data.get("quantity"),
-            item_data.get("discount_nominal"),
-            item_data.get("discount_percent"),
-        )
+        n_meta = dict(item_data.get("meta") or {})
+        n_meta["base_price"] = b_price
+        n_meta["original_price"] = b_price
+        n_meta["sell_price"] = s_price
+        n_meta["after_disc_price"] = s_price
+        n_meta["discount_nominal"] = item_data["discount_nominal"]
+        n_meta["discount_percent"] = item_data["discount_percent"]
+        item_data["meta"] = n_meta
 
         item = AddToCartItem(**item_data)
         db.add(item)

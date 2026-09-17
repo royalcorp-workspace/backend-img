@@ -11,6 +11,7 @@ class CourierReadNested(BaseModel):
     id: uuid.UUID
     code: str
     name: str
+    courier_type: str | None = "expedisi"
     type: int | None = None
     is_active: bool
     sort_order: int
@@ -19,10 +20,12 @@ class CourierReadNested(BaseModel):
 class ShippingAddressReadNested(BaseModel):
     id: uuid.UUID
     courier_id: uuid.UUID
-    sub_district_id: uuid.UUID
+    city_id: uuid.UUID | None = None
+    sub_district_id: uuid.UUID | None = None
     type: int | None = None
     type_name: str | None = None
     price: float
+    additional_price_per_kg: float = 0.0
     is_active: bool
     sort_order: int
 
@@ -38,13 +41,10 @@ class ShippingAddressReadNested(BaseModel):
 class CourierBase(BaseModel):
     code: Annotated[str, Field(min_length=1, max_length=50)]
     name: Annotated[str, Field(min_length=1, max_length=100)]
+    courier_type: str | None = "expedisi"
     type: int | None = None
     is_active: bool = True
     sort_order: int = 0
-
-
-class Courier(CourierBase, TimestampSchema):
-    id: uuid.UUID
 
 
 class CourierCreate(CourierBase):
@@ -52,8 +52,9 @@ class CourierCreate(CourierBase):
 
 
 class CourierUpdate(BaseModel):
-    code: str | None = None
-    name: str | None = None
+    code: Annotated[str | None, Field(min_length=1, max_length=50)] = None
+    name: Annotated[str | None, Field(min_length=1, max_length=100)] = None
+    courier_type: str | None = None
     type: int | None = None
     is_active: bool | None = None
     sort_order: int | None = None
@@ -67,9 +68,11 @@ class CourierRead(CourierBase, TimestampSchema):
 # --- Shipping Address Schemas ---
 class ShippingAddressBase(BaseModel):
     courier_id: uuid.UUID
-    sub_district_id: uuid.UUID
+    city_id: uuid.UUID | None = None
+    sub_district_id: uuid.UUID | None = None
     type: int | None = None
     price: float = 0.0
+    additional_price_per_kg: float = 0.0
     is_active: bool = True
     sort_order: int = 0
 
@@ -80,9 +83,11 @@ class ShippingAddressCreate(ShippingAddressBase):
 
 class ShippingAddressUpdate(BaseModel):
     courier_id: uuid.UUID | None = None
+    city_id: uuid.UUID | None = None
     sub_district_id: uuid.UUID | None = None
     type: int | None = None
     price: float | None = None
+    additional_price_per_kg: float | None = None
     is_active: bool | None = None
     sort_order: int | None = None
 
