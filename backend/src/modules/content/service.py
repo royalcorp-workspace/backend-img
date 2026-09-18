@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,6 +19,7 @@ from ..product.models import (
     ProductImage,
     ProductVariant,
 )
+from ..review.models import Review
 from .crud import (
     crud_about_us,
     crud_blog_posts,
@@ -72,6 +73,15 @@ class ContentService:
         sec_res = await db.execute(sec_stmt)
         db_sections = sec_res.scalars().all()
 
+        # Condition to ensure products have valid in-stock variants with price
+        has_stock_and_price = Product.variants.any(
+            and_(
+                ProductVariant.deleted == False,
+                ProductVariant.sell_price > 0,
+                ProductVariant.stock_qty > 0,
+            )
+        )
+
         # 2. Preload Bestsellers (10 products)
         bs_stmt = (
             select(Product)
@@ -86,6 +96,7 @@ class ContentService:
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
                 Product.best_seller == True,
+                has_stock_and_price,
             )
             .limit(10)
         )
@@ -93,84 +104,103 @@ class ContentService:
         bestseller_products = bs_res.scalars().all()
         bestseller_ids = [p.id for p in bestseller_products]
 
-        def _format_product_card(prod: Product) -> dict[str, Any]:
-            valid_variants = [v for v in (prod.variants or []) if not v.deleted and (v.sell_price or 0) > 0]
+        # Preload review counts for all products
+        rev_count_stmt = (
+            select(Review.product_id, func.count(Review.id).label("cnt"))
+            .where(
+                or_(Review.is_deleted == False, Review.is_deleted.is_(None)),
+                Review.is_published == True,
+            )
+            .group_by(Review.product_id)
+        )
+        rev_count_res = await db.execute(rev_count_stmt)
+        review_counts_map = {row[0]: int(row[1] or 0) for row in rev_count_res.all()}
+
+        def _format_product_card(prod: Product, explicit_review_count: int | None = None) -> dict[str, Any] | None:
+            # Prioritize variants with price and stock
+            valid_variants = [
+                v for v in (prod.variants or [])
+                if not v.deleted and (v.sell_price or 0) > 0 and (v.stock_qty or 0) > 0
+            ]
+            if not valid_variants:
+                valid_variants = [v for v in (prod.variants or []) if not v.deleted and (v.sell_price or 0) > 0]
+
             if valid_variants:
-                prices = [float(v.sell_price) for v in valid_variants]
-                min_price = min(prices)
-                max_price = max(prices)
+                sorted_vars = sorted(
+                    valid_variants,
+                    key=lambda v: (float(v.sell_price or 0.0), getattr(v, "created_at", None) or datetime.min),
+                    reverse=True,
+                )
+                chosen_v = sorted_vars[0]
+                s_price = float(chosen_v.sell_price or 0.0)
+                b_price = float(chosen_v.base_price or 0.0)
+                if b_price <= 0 or b_price < s_price:
+                    b_price = s_price
             else:
-                min_price = float(prod.variants[0].sell_price if prod.variants and prod.variants[0].sell_price else 0.0)
-                max_price = min_price
+                s_price = float(getattr(prod, "sell_price", 0.0) or 0.0)
+                b_price = float(getattr(prod, "base_price", 0.0) or s_price) or s_price
 
-            discount_percent = 0.0
-            discounted_price = min_price
-            pps_label = None
+            if s_price <= 0:
+                return None
 
-            if prod.price_product_settings:
+            disc_percent = 0.0
+            if b_price > s_price and b_price > 0:
+                disc_percent = round(((b_price - s_price) / b_price) * 100.0, 1)
+                if disc_percent.is_integer():
+                    disc_percent = int(disc_percent)
+            elif prod.price_product_settings:
                 for pps in prod.price_product_settings:
                     if getattr(pps, "is_active", True):
                         val = float(pps.discount_value or 0.0)
                         dtype = pps.discount_type
                         if dtype == 1 or (0 < val <= 100 and dtype != 2):
-                            discount_percent = val
-                            discounted_price = min_price * (1.0 - discount_percent / 100.0)
-                            pps_label = f"{round(discount_percent)}%"
-                        elif val > 0 and min_price > 0:
-                            discounted_price = max(0.0, min_price - val)
-                            discount_percent = round((val / min_price) * 100.0)
-                            pps_label = f"{round(discount_percent)}%"
+                            disc_percent = round(val, 1)
+                            if disc_percent.is_integer():
+                                disc_percent = int(disc_percent)
+                            s_price = round(b_price * (1.0 - val / 100.0), 2)
+                        elif val > 0 and b_price > 0:
+                            s_price = max(0.0, b_price - val)
+                            disc_percent = round((val / b_price) * 100.0, 1)
+                            if disc_percent.is_integer():
+                                disc_percent = int(disc_percent)
                         break
 
             thumb = get_media_url(prod.thumbnail)
             if not thumb and prod.images:
-                thumb = get_media_url(prod.images[0].image)
+                for img in prod.images:
+                    t = get_media_url(img.image)
+                    if t:
+                        thumb = t
+                        break
+            if not thumb and prod.variants:
+                for v in prod.variants:
+                    v_img = getattr(v, "image_url", None)
+                    if v_img:
+                        thumb = get_media_url(v_img)
+                        if thumb:
+                            break
+
+            r_count = explicit_review_count if explicit_review_count is not None else review_counts_map.get(prod.id, 0)
 
             return {
                 "id": prod.id,
+                "title": prod.name,
                 "name": prod.name,
                 "slug": prod.slug,
-                "thumbnail_url": thumb,
+                "image": thumb,
                 "thumbnail": thumb,
-                "min_price": min_price,
-                "max_price": max_price,
-                "original_price": min_price,
-                "discounted_price": discounted_price,
-                "discount_percent": discount_percent,
-                "pps_label": pps_label,
-                "best_seller": prod.best_seller,
-                "is_new": prod.is_new,
-                "brand": (
-                    {"id": prod.brand.id, "name": prod.brand.name, "slug": prod.brand.slug}
-                    if prod.brand
-                    else None
-                ),
-                "category": (
-                    {"id": prod.category.id, "name": prod.category.name, "slug": prod.category.slug}
-                    if prod.category
-                    else None
-                ),
-                "images": [
-                    {"id": img.id, "image": get_media_url(img.image), "image_url": get_media_url(img.image), "alt_text": img.alt_text}
-                    for img in (prod.images or [])
-                ],
-                "variants": [
-                    {
-                        "id": v.id,
-                        "variant_name": v.variant_name,
-                        "sku": v.sku,
-                        "sell_price": float(v.sell_price or 0.0),
-                        "base_price": float(v.base_price or 0.0),
-                        "stock_qty": v.stock_qty or 0,
-                    }
-                    for v in (prod.variants or [])
-                    if not v.deleted
-                ],
+                "thumbnail_url": thumb,
+                "base_price": b_price,
+                "sell_price": s_price,
+                "discount_percent": disc_percent,
+                "counting_review": r_count,
+                "reviews_count": r_count,
+                "review_count": r_count,
             }
 
-        formatted_bestsellers = [_format_product_card(p) for p in bestseller_products]
+        formatted_bestsellers = [c for p in bestseller_products if (c := _format_product_card(p)) is not None]
 
-        # 3. Preload Newest Products (10 products)
+        # 3. Preload Newest Products (10 products with stock & price)
         new_stmt = (
             select(Product)
             .options(
@@ -183,14 +213,15 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                has_stock_and_price,
             )
             .order_by(Product.created_at.desc())
             .limit(10)
         )
         new_res = await db.execute(new_stmt)
-        formatted_newest = [_format_product_card(p) for p in new_res.scalars().all()]
+        formatted_newest = [c for p in new_res.scalars().all() if (c := _format_product_card(p)) is not None]
 
-        # 4. Preload Cheapest Products (10 products ordered by min variant sell_price asc)
+        # 4. Preload Cheapest Products (10 products ordered by min variant sell_price asc, with stock)
         cheapest_subq = (
             select(
                 ProductVariant.product_id,
@@ -199,6 +230,7 @@ class ContentService:
             .where(
                 ProductVariant.deleted == False,
                 ProductVariant.sell_price > 0,
+                ProductVariant.stock_qty > 0,
             )
             .group_by(ProductVariant.product_id)
             .subquery()
@@ -221,63 +253,41 @@ class ContentService:
             .limit(10)
         )
         cheap_res = await db.execute(cheap_stmt)
-        formatted_cheapest = [_format_product_card(p) for p in cheap_res.scalars().all()]
+        formatted_cheapest = [c for p in cheap_res.scalars().all() if (c := _format_product_card(p)) is not None]
 
-        # 5. Preload Brands for Promo Brands
-        br_stmt = (
-            select(Brand)
+        # 5. Preload Top Reviews (products with stock, price, and review counts)
+        top_reviews_stmt = (
+            select(Product, func.count(Review.id).label("reviews_count"))
+            .outerjoin(
+                Review,
+                (Review.product_id == Product.id)
+                & or_(Review.is_deleted == False, Review.is_deleted.is_(None))
+                & (Review.is_published == True),
+            )
+            .options(
+                selectinload(Product.images),
+                selectinload(Product.variants),
+                selectinload(Product.brand),
+                selectinload(Product.category),
+                selectinload(Product.price_product_settings),
+            )
             .where(
-                Brand.deleted == False,
-                or_(Brand.status == 1, Brand.status.is_(None)),
-                Brand.id.in_(
-                    select(Product.brand_id)
-                    .where(
-                        Product.deleted == False,
-                        or_(Product.status == 1, Product.status.is_(None)),
-                        Product.brand_id.isnot(None),
-                    )
-                ),
+                Product.deleted == False,
+                or_(Product.status == 1, Product.status.is_(None)),
+                has_stock_and_price,
             )
-            .order_by(Brand.sort_order.asc(), Brand.name.asc())
-            .limit(20)
+            .group_by(Product.id)
+            .order_by(func.count(Review.id).desc(), Product.created_at.desc())
+            .limit(10)
         )
-        br_res = await db.execute(br_stmt)
-        brands = br_res.scalars().all()
-
-        # 6. Preload Promo Brands (brands with top 3 discounted/promoted products)
-        formatted_promo_brands = []
-        for b in brands:
-            b_prod_stmt = (
-                select(Product)
-                .options(
-                    selectinload(Product.images),
-                    selectinload(Product.variants),
-                    selectinload(Product.brand),
-                    selectinload(Product.category),
-                    selectinload(Product.price_product_settings),
-                )
-                .where(
-                    Product.brand_id == b.id,
-                    Product.deleted == False,
-                    or_(Product.status == 1, Product.status.is_(None)),
-                )
-                .limit(10)
-            )
-            b_prod_res = await db.execute(b_prod_stmt)
-            b_prods = [_format_product_card(p) for p in b_prod_res.scalars().all()]
-            b_prods.sort(key=lambda x: x.get("discount_percent", 0.0), reverse=True)
-            top_promo_products = b_prods[:3]
-            if not top_promo_products:
-                continue
-            formatted_promo_brands.append({
-                "id": b.id,
-                "name": b.name,
-                "slug": b.slug,
-                "is_featured": b.is_featured,
-                "top_promo_products": top_promo_products,
-            })
-            if len(formatted_promo_brands) >= 6:
-                break
+        top_reviews_res = await db.execute(top_reviews_stmt)
+        formatted_top_reviews = []
+        for row in top_reviews_res.all():
+            prod = row[0]
+            r_count = int(row[1] or 0)
+            card = _format_product_card(prod, explicit_review_count=r_count)
+            if card is not None:
+                formatted_top_reviews.append(card)
 
         # 7. Preload Bundling
         bund_stmt = (
@@ -289,6 +299,7 @@ class ContentService:
             .where(
                 ProductBundling.deleted == False,
                 or_(ProductBundling.is_active.is_(True), ProductBundling.is_active.is_(None)),
+                ProductBundling.price > 0,
             )
             .order_by(ProductBundling.created_at.desc())
             .limit(8)
@@ -297,6 +308,10 @@ class ContentService:
         bundles = bund_res.scalars().all()
         formatted_bundles = []
         for bundle in bundles:
+            bundle_price = float(bundle.price or 0.0)
+            if bundle_price <= 0:
+                continue
+
             total_original = 0.0
             for bi in (bundle.items or []):
                 qty = bi.quantity or 1
@@ -307,13 +322,14 @@ class ContentService:
                     if valid_v:
                         total_original += float(min(v.sell_price for v in valid_v)) * qty
 
-            bundle_price = float(bundle.price or 0.0)
-            if total_original <= 0:
+            if total_original <= 0 or total_original < bundle_price:
                 total_original = bundle_price
 
             discount_percent = 0.0
             if total_original > bundle_price and total_original > 0:
-                discount_percent = round(((total_original - bundle_price) / total_original) * 100.0)
+                discount_percent = round(((total_original - bundle_price) / total_original) * 100.0, 1)
+                if discount_percent.is_integer():
+                    discount_percent = int(discount_percent)
 
             thumb = get_media_url(getattr(bundle, "banner_image", None) or bundle.image_url)
             if not thumb and bundle.items and bundle.items[0].product:
@@ -322,30 +338,21 @@ class ContentService:
 
             formatted_bundles.append({
                 "id": bundle.id,
+                "title": bundle.name,
                 "name": bundle.name,
                 "slug": bundle.slug,
-                "description": bundle.description,
-                "price": bundle_price,
-                "total_price": bundle_price,
-                "total_original": total_original,
-                "discount_percent": discount_percent,
+                "image": thumb,
+                "thumbnail": thumb,
                 "thumbnail_url": thumb,
-                "banner_image": get_media_url(getattr(bundle, "banner_image", None)),
-                "image_url": get_media_url(bundle.image_url),
-                "items": [
-                    {
-                        "id": bi.id,
-                        "product_id": bi.product_id,
-                        "variant_id": bi.variant_id,
-                        "quantity": bi.quantity,
-                        "product_name": bi.product.name if bi.product else None,
-                        "variant_name": bi.variant.variant_name if bi.variant else None,
-                    }
-                    for bi in (bundle.items or [])
-                ],
+                "base_price": total_original,
+                "sell_price": bundle_price,
+                "discount_percent": discount_percent,
+                "counting_review": 0,
+                "reviews_count": 0,
+                "review_count": 0,
             })
 
-        # 8. Preload Recommended (products not in bestsellers)
+        # 8. Preload Recommended (in-stock products not in bestsellers, fallback to all in-stock)
         rec_stmt = (
             select(Product)
             .options(
@@ -358,12 +365,35 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                has_stock_and_price,
                 Product.id.not_in(bestseller_ids) if bestseller_ids else True,
             )
             .limit(10)
         )
         rec_res = await db.execute(rec_stmt)
-        formatted_recommended = [_format_product_card(p) for p in rec_res.scalars().all()]
+        rec_products = rec_res.scalars().all()
+        if not rec_products:
+            rec_fallback_stmt = (
+                select(Product)
+                .options(
+                    selectinload(Product.images),
+                    selectinload(Product.variants),
+                    selectinload(Product.brand),
+                    selectinload(Product.category),
+                    selectinload(Product.price_product_settings),
+                )
+                .where(
+                    Product.deleted == False,
+                    or_(Product.status == 1, Product.status.is_(None)),
+                    has_stock_and_price,
+                )
+                .order_by(Product.name.asc())
+                .limit(10)
+            )
+            rec_fallback_res = await db.execute(rec_fallback_stmt)
+            rec_products = rec_fallback_res.scalars().all()
+
+        formatted_recommended = [c for p in rec_products if (c := _format_product_card(p)) is not None]
 
         # Helper to map section_key to items
         def _get_items_for_key(sec_key: str, sec_meta: dict[str, Any] | None) -> list[Any]:
@@ -378,8 +408,8 @@ class ContentService:
                 return formatted_cheapest
             elif "pilihan" in k or ("brand" in k and "promo" not in k) or "merek" in k:
                 return formatted_newest
-            elif "promo" in k:
-                return formatted_promo_brands
+            elif any(x in k for x in ["promo", "review", "ulasan", "top_review"]):
+                return formatted_top_reviews
             elif "spesial" in k or "special" in k or "sorotan" in k or "featured" in k:
                 feat_id = (sec_meta or {}).get("featured_product_id")
                 if feat_id:
@@ -415,6 +445,10 @@ class ContentService:
                     target_key = "product_termurah"
                     target_title = "Produk Termurah"
                     items = formatted_cheapest
+                elif any(x in k for x in ["promo", "review", "ulasan", "top_review"]):
+                    target_key = "top_reviews"
+                    target_title = "Ulasan Terbanyak"
+                    items = formatted_top_reviews
                 else:
                     target_key = sec.section_key
                     target_title = sec.title
@@ -440,7 +474,7 @@ class ContentService:
             {"section_key": "best_seller", "title": "Produk Unggulan", "items": formatted_bestsellers, "sort_order": 1},
             {"section_key": "product_terbaru", "title": "Produk Terbaru", "items": formatted_newest, "sort_order": 2},
             {"section_key": "product_termurah", "title": "Produk Termurah", "items": formatted_cheapest, "sort_order": 3},
-            {"section_key": "promo_brand", "title": "Promo Brand Pilihan", "items": formatted_promo_brands, "sort_order": 4},
+            {"section_key": "top_reviews", "title": "Ulasan Terbanyak", "items": formatted_top_reviews, "sort_order": 4},
             {
                 "section_key": "spesial",
                 "title": "Produk Spesial",

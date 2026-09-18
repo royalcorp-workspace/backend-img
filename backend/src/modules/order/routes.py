@@ -1,10 +1,10 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user, get_optional_user
 from ...infrastructure.dependencies import AsyncSessionDep
 from .dependencies import OrderServiceDep
 from .schemas import OrderCreate, OrderHistoryRead, OrderRead
@@ -335,10 +335,38 @@ async def get_void_orders(
 
 
 @router.get(
+    "/track",
+    summary="Track Order by Order Number, Resi, or ID",
+    description="Track order status and retrieve full resi tracking payload from Biteship / delivery logs.",
+    tags=["Orders"],
+    responses={
+        200: {
+            "description": "Tracking details and raw resi payload",
+        },
+        400: {
+            "description": "Missing tracking identifier",
+        },
+    },
+)
+async def track_order(
+    db: AsyncSessionDep,
+    order_service: OrderServiceDep,
+    order_number: str | None = Query(None, description="Nomor Order, contoh: ORD-20260914-6220"),
+    waybill_id: str | None = Query(None, description="Nomor Resi / Waybill ID, contoh: WYB-WEBHOOK-999"),
+    order_id: str | None = Query(None, description="Order UUID"),
+    user: Annotated[dict[str, Any] | None, Depends(get_optional_user)] = None,
+) -> dict[str, Any]:
+    ident = order_number or waybill_id or order_id
+    if not ident:
+        raise HTTPException(status_code=400, detail="Harap masukkan order_number, waybill_id, atau order_id")
+    return await order_service.get_order_tracking(db, ident)
+
+
+@router.get(
     "/{order_id}",
     response_model=OrderRead,
     summary="Get Order",
-    description="Get a single order by ID with customer, items, and void status.",
+    description="Get a single order by ID with customer, items, tracking info with resi payload, and void status.",
     responses={
         200: {
             "description": "The requested order",
@@ -369,6 +397,26 @@ async def get_order(
     order_service: OrderServiceDep,
 ) -> dict[str, Any]:
     return await order_service.get_by_id(db, order_id)
+
+
+@router.get(
+    "/{order_id}/tracking",
+    summary="Get Order Tracking and Resi Payload",
+    description="Get tracking logs, resi waybill ID, courier, and raw payload for an order (supports UUID or order_number).",
+    tags=["Orders"],
+    responses={
+        200: {
+            "description": "Tracking logs and resi payload",
+        },
+    },
+)
+async def get_order_tracking(
+    order_id: str,
+    db: AsyncSessionDep,
+    order_service: OrderServiceDep,
+    user: Annotated[dict[str, Any] | None, Depends(get_optional_user)] = None,
+) -> dict[str, Any]:
+    return await order_service.get_order_tracking(db, order_id)
 
 
 @router.post(
