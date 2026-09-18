@@ -15,15 +15,14 @@ if TYPE_CHECKING:
 class Review(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "reviews"
 
-    id: Mapped[int] = mapped_column(
-        autoincrement=True,
-        nullable=False,
-        unique=True,
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
         primary_key=True,
+        default=uuid_pkg.uuid4,
         init=False,
     )
     product_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
-    order_id: Mapped[int | None] = mapped_column(Integer, default=None)
+    order_id: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id"), default=None)
     user_name: Mapped[str | None] = mapped_column(String(100), default=None)
     user_email: Mapped[str | None] = mapped_column(String(100), default=None)
     rating: Mapped[int | None] = mapped_column(Integer, default=0)

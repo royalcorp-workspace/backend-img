@@ -310,51 +310,44 @@ async def firebase_login(
     if matched:
         update_data: dict[str, Any] = {
             "firebase_uid": firebase_uid,
-            "oauth_provider": auth_provider,
+            "firebase_token": firebase_token,
+            "auth_provider": auth_provider,
             "email_verified": True,
         }
         if display_name:
             update_data["name"] = display_name
         if photo_url:
-            update_data["profile_image_url"] = photo_url
+            update_data["photo_url"] = photo_url
+            update_data["avatar"] = photo_url
+        if is_google_login and verified_claims.get("sub"):
+            update_data["google_id"] = verified_claims.get("sub")
         await crud_users.update(db=db, object=update_data, id=matched["id"])
         user_id = matched["id"]
-        username = matched.get("username", "")
+        username = email.split("@")[0]
     else:
-        import re
-        
-        base_username = re.sub(r"[^a-z0-9]", "", email.split("@")[0].lower())
-        if len(base_username) < 2:
-            base_username = base_username.ljust(2, "a")
-            
-        username = base_username[:20]
-        counter = 1
-        while await crud_users.exists(db=db, username=username):
-            suffix = str(counter)
-            username = base_username[:20 - len(suffix)] + suffix
-            counter += 1
-
-        name = (display_name or email)[:30]
-        if len(name) < 2:
-            name = name.ljust(2, "a")
-
-        user_in = UserCreateInternal(
-            name=name,
-            username=username,
+        new_user = User(
+            id=uuid_pkg.uuid4(),
+            name=(display_name or email.split("@")[0])[:100],
             email=email,
-            hashed_password="",
+            password="",
             firebase_uid=firebase_uid,
-            oauth_provider=auth_provider,
+            firebase_token=firebase_token,
+            auth_provider=auth_provider,
+            photo_url=photo_url,
+            avatar=photo_url,
             email_verified=True,
-            profile_image_url=photo_url or "https://www.profileimageurl.com",
+            google_id=verified_claims.get("sub") if is_google_login else None,
+            deleted=False,
         )
-        created = await crud_users.create(db=db, object=user_in)
-        user_id = created.get("id") if isinstance(created, dict) else getattr(created, "id")
-        username = created.get("username", username) if isinstance(created, dict) else getattr(created, "username", username)
-        
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        user_id = new_user.id
+        username = email.split("@")[0]
+
         from ...modules.customer.schemas import CustomerCreate
         customer_in = CustomerCreate(
-            name=name[:100],
+            name=(display_name or email.split("@")[0])[:100],
             email=email,
             user_id=user_id,
         )
@@ -377,7 +370,7 @@ async def firebase_login(
 
     from sqlalchemy import select
     from ...modules.user.models import User
-    result = await db.execute(select(User).where(User.id == user_id, User.is_deleted == False))
+    result = await db.execute(select(User).where(User.id == user_id, User.deleted == False))
     user = result.scalar_one_or_none()
     token_body = _bearer_transport.issue_tokens(user, response=response)
 

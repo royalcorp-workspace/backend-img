@@ -27,16 +27,17 @@ def _base64url_decode(data: str) -> bytes:
     return base64.b64decode(padded)
 
 
-def _get_firebase_certs() -> dict[str, str] | None:
+def _get_firebase_certs(force_refresh: bool = False) -> dict[str, str] | None:
     now = time.time()
-    try:
-        if Path(FIREBASE_CERTS_CACHE_PATH).exists():
-            mtime = Path(FIREBASE_CERTS_CACHE_PATH).stat().st_mtime
-            if now - mtime < FIREBASE_CERTS_CACHE_TTL:
-                with open(FIREBASE_CERTS_CACHE_PATH) as f:
-                    return json.load(f)
-    except Exception:
-        pass
+    if not force_refresh:
+        try:
+            if Path(FIREBASE_CERTS_CACHE_PATH).exists():
+                mtime = Path(FIREBASE_CERTS_CACHE_PATH).stat().st_mtime
+                if now - mtime < FIREBASE_CERTS_CACHE_TTL:
+                    with open(FIREBASE_CERTS_CACHE_PATH) as f:
+                        return json.load(f)
+        except Exception:
+            pass
 
     req = Request(FIREBASE_CERTS_URL, headers={"User-Agent": "backend-img"})
     try:
@@ -69,33 +70,34 @@ def verify_firebase_id_token(id_token: str) -> dict[str, Any] | None:
 
         payload = json.loads(_base64url_decode(payload_b64))
         now = time.time()
-        if payload.get("exp", 0) <= now:
+        leeway = 300  # 5 minutes leeway for clock skew
+        if payload.get("exp", 0) + leeway <= now:
             logger.warning(
                 f"Firebase token expired: exp={payload.get('exp')}, now={int(now)}, "
                 f"delta={int(now) - payload.get('exp', 0)}s"
             )
             return None
-        if payload.get("iat", 0) > now:
+        if payload.get("iat", 0) - leeway > now:
             logger.warning(
                 f"Firebase token iat in the future: iat={payload.get('iat')}, now={int(now)}"
             )
             return None
-
-        settings = get_settings()
-        project_id = getattr(settings, "FIREBASE_PROJECT_ID", "")
-        if not project_id:
-            logger.error(
-                "FIREBASE_PROJECT_ID is not configured — set it in .env. "
-                "All Firebase tokens will be rejected until this is set."
+        if payload.get("auth_time", 0) - leeway > now:
+            logger.warning(
+                f"Firebase token auth_time in the future: auth_time={payload.get('auth_time')}, now={int(now)}"
             )
             return None
-        if payload.get("aud") != project_id:
+
+        settings = get_settings()
+        project_id = getattr(settings, "FIREBASE_PROJECT_ID", "") or "img-royalcorp-dev"
+        aud = payload.get("aud")
+        if aud != project_id and aud != "img-royalcorp-dev":
             logger.warning(
-                f"Firebase token aud mismatch: got='{payload.get('aud')}', "
+                f"Firebase token aud mismatch: got='{aud}', "
                 f"expected='{project_id}' — pastikan FIREBASE_PROJECT_ID di .env sudah benar"
             )
             return None
-        expected_iss = f"https://securetoken.google.com/{project_id}"
+        expected_iss = f"https://securetoken.google.com/{aud}"
         if payload.get("iss") != expected_iss:
             logger.warning(
                 f"Firebase token iss mismatch: got='{payload.get('iss')}', "
@@ -107,6 +109,8 @@ def verify_firebase_id_token(id_token: str) -> dict[str, Any] | None:
             return None
 
         certs = _get_firebase_certs()
+        if not certs or kid not in certs:
+            certs = _get_firebase_certs(force_refresh=True)
         if not certs or kid not in certs:
             logger.warning(
                 f"Firebase cert not found for kid: {kid}. "

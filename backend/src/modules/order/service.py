@@ -602,7 +602,14 @@ class OrderService:
         order = result.scalar_one_or_none()
         if order:
             voids_map = await _fetch_voids_map_for_orders(db, [order.id])
-            return _order_to_dict(order, voids_map.get(order.id))
+            data = _order_to_dict(order, voids_map.get(order.id))
+            tracking_info = await self.get_order_tracking(db, order.id)
+            data["tracking_number"] = tracking_info.get("tracking_number")
+            data["waybill_id"] = tracking_info.get("waybill_id")
+            data["courier_code"] = tracking_info.get("courier_code")
+            data["tracking_logs"] = tracking_info.get("events")
+            data["tracking_payload"] = tracking_info.get("latest_payload")
+            return data
 
         # Check in void_orders table
         try:
@@ -616,6 +623,141 @@ class OrderService:
             pass
 
         raise ResourceNotFoundError(f"Order with ID {order_id} not found")
+
+    async def get_order_tracking(self, db: AsyncSession, identifier: UUID | str) -> dict[str, Any]:
+        """Fetch tracking info and raw payload from delivery_logs and deliveries tables by UUID, order_number, or waybill_id."""
+        try:
+            target_order_id: UUID | None = _safe_uuid(identifier)
+            order_number: str | None = None
+            order_status: int | None = None
+            status_label: str | None = None
+
+            # 1. Resolve Order
+            if target_order_id:
+                order_stmt = select(Order).where(Order.id == target_order_id)
+                order_res = await db.execute(order_stmt)
+                order = order_res.scalar_one_or_none()
+                if order:
+                    order_number = order.order_number
+                    order_status = order.status
+                    status_label = _resolve_status_label(order.status)
+            else:
+                str_id = str(identifier).strip()
+                order_stmt = select(Order).where(func.lower(Order.order_number) == str_id.lower())
+                order_res = await db.execute(order_stmt)
+                order = order_res.scalar_one_or_none()
+                if order:
+                    target_order_id = order.id
+                    order_number = order.order_number
+                    order_status = order.status
+                    status_label = _resolve_status_label(order.status)
+
+            # 2. Check deliveries table if order_id is known
+            tracking_number: str | None = None
+            courier_code: str | None = None
+            if target_order_id:
+                deliv_res = await db.execute(
+                    text("SELECT id, tracking_number, courier_id, status FROM deliveries WHERE order_id = :target_oid LIMIT 1"),
+                    {"target_oid": str(target_order_id)},
+                )
+                deliv_row = deliv_res.fetchone()
+                if deliv_row:
+                    tracking_number = deliv_row[1]
+
+            # 3. Check delivery_logs
+            str_id = str(identifier).strip()
+            where_conditions = [
+                "waybill_id = :str_id",
+                "payload->'metadata'->>'order_number' = :str_id",
+                "payload->>'order_id' = :str_id",
+                "payload->'metadata'->>'order_id' = :str_id",
+            ]
+            params: dict[str, Any] = {"str_id": str_id}
+
+            if target_order_id:
+                where_conditions.insert(0, "order_id = :target_oid")
+                params["target_oid"] = str(target_order_id)
+            if order_number:
+                where_conditions.append("payload->'metadata'->>'order_number' = :ord_num")
+                params["ord_num"] = order_number
+
+            where_sql = " OR ".join(f"({c})" for c in where_conditions)
+            logs_query = text(f"""
+                SELECT id, order_id, waybill_id, biteship_order_id, courier_code, event, status, location, note, payload, created_at
+                FROM delivery_logs
+                WHERE {where_sql}
+                ORDER BY created_at ASC
+            """)
+            logs_res = await db.execute(logs_query, params)
+            logs = logs_res.fetchall()
+
+            events = []
+            waybill_id = tracking_number
+            latest_payload = None
+
+            for row in logs:
+                r_id, r_order_id, r_waybill, r_biteship_id, r_courier, r_event, r_status, r_loc, r_note, r_payload, r_created = row
+                if not target_order_id and r_order_id:
+                    target_order_id = r_order_id
+                if r_waybill:
+                    waybill_id = r_waybill
+                if r_courier:
+                    courier_code = r_courier
+
+                p_data = r_payload if isinstance(r_payload, dict) else (json.loads(r_payload) if isinstance(r_payload, str) else {})
+                if p_data:
+                    latest_payload = p_data
+                    if not order_number and isinstance(p_data.get("metadata"), dict):
+                        order_number = p_data["metadata"].get("order_number")
+
+                events.append({
+                    "id": str(r_id),
+                    "waybill_id": r_waybill,
+                    "courier_code": r_courier,
+                    "biteship_order_id": r_biteship_id,
+                    "event": r_event,
+                    "status": r_status,
+                    "location": r_loc,
+                    "note": r_note,
+                    "payload": p_data,
+                    "created_at": _safe_datetime(r_created),
+                })
+
+            if target_order_id and not order_number:
+                order_stmt = select(Order).where(Order.id == target_order_id)
+                order_res = await db.execute(order_stmt)
+                order = order_res.scalar_one_or_none()
+                if order:
+                    order_number = order.order_number
+                    order_status = order.status
+                    status_label = _resolve_status_label(order.status)
+
+            return {
+                "order_id": target_order_id,
+                "order_number": order_number,
+                "status": order_status,
+                "status_label": status_label,
+                "tracking_number": tracking_number or waybill_id,
+                "waybill_id": waybill_id,
+                "courier_code": courier_code,
+                "events": events,
+                "latest_payload": latest_payload,
+                "payload": latest_payload,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to fetch tracking for identifier {identifier}: {e}")
+            return {
+                "order_id": None,
+                "order_number": None,
+                "status": None,
+                "status_label": None,
+                "tracking_number": None,
+                "waybill_id": None,
+                "courier_code": None,
+                "events": [],
+                "latest_payload": None,
+                "payload": None,
+            }
 
     async def create(self, db: AsyncSession, order_in: OrderCreate) -> Any:
         order_data = order_in.model_dump(
