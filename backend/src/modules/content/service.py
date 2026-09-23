@@ -95,6 +95,7 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
                 Product.best_seller == True,
                 has_stock_and_price,
             )
@@ -213,6 +214,7 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
                 has_stock_and_price,
             )
             .order_by(Product.created_at.desc())
@@ -248,6 +250,7 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
             )
             .order_by(cheapest_subq.c.min_sell_price.asc())
             .limit(10)
@@ -274,6 +277,7 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
                 has_stock_and_price,
             )
             .group_by(Product.id)
@@ -365,6 +369,7 @@ class ContentService:
             .where(
                 Product.deleted == False,
                 or_(Product.status == 1, Product.status.is_(None)),
+                or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
                 has_stock_and_price,
                 Product.id.not_in(bestseller_ids) if bestseller_ids else True,
             )
@@ -385,6 +390,7 @@ class ContentService:
                 .where(
                     Product.deleted == False,
                     or_(Product.status == 1, Product.status.is_(None)),
+                    or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
                     has_stock_and_price,
                 )
                 .order_by(Product.name.asc())

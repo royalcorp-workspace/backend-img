@@ -18,6 +18,7 @@ class ProductBase(BaseModel):
     description: str | None = None
     best_seller: bool = False
     is_new: bool = False
+    is_bundle: bool = False
     status: int = 1
     uom: str | None = None
     segments: list[Any] | dict[str, Any] | None = None
@@ -171,6 +172,10 @@ class ProductVariantBase(BaseModel):
     length: float | None = 0.0
     height: float | None = 0.0
     weight: float | None = 0.0
+    package_length: float | None = None
+    package_width: float | None = None
+    package_height: float | None = None
+    package_weight: float | None = None
     base_price: float | None = 0.0
     sell_price: float | None = 0.0
     shipping_cost: float | None = 0.0
@@ -218,6 +223,10 @@ class ProductBundlingItemBase(BaseModel):
     product_id: UUID
     variant_id: UUID | None = None
     quantity: int = 1
+    is_suggest: bool = False
+    bundle_price: float | None = None
+    discount_percent: float | None = None
+    discount_nominal: float | None = None
 
 class ProductBundlingItemRead(ProductBundlingItemBase):
     id: UUID
@@ -244,3 +253,33 @@ class ProductBundlingBase(BaseModel):
 class ProductBundlingRead(ProductBundlingBase):
     id: UUID
     items: list[ProductBundlingItemRead] = []
+
+
+class ProductBundlingItemDetailRead(BaseModel):
+    id: UUID
+    bundling_id: UUID
+    product_id: UUID
+    variant_id: UUID | None = None
+    product_name: str | None = None
+    product_slug: str | None = None
+    variant_name: str | None = None
+    quantity: int = 1
+    is_suggest: bool = False
+    bundle_price: float | None = None
+    discount_percent: float | None = None
+    discount_nominal: float | None = None
+    original_price: float = 0.0
+    min_price: float | None = None
+    max_price: float | None = None
+    price_range_text: str | None = None
+    image_url: str | None = None
+
+
+class ProductBundlingDetailRead(ProductBundlingBase):
+    id: UUID
+    total_normal_price: float = 0.0
+    discount_amount: float = 0.0
+    discount_percent: float = 0.0
+    items: list[ProductBundlingItemDetailRead] = []
+    fixed_items: list[ProductBundlingItemDetailRead] = []
+    suggest_items: list[ProductBundlingItemDetailRead] = []

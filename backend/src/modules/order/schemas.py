@@ -126,6 +126,13 @@ class OrderRead(BaseModel):
     courier_code: str | None = None
     tracking_logs: list[dict[str, Any]] | None = None
     tracking_payload: dict[str, Any] | None = None
+    estimated_delivery_at: datetime | str | None = None
+    estimated_delivery_min: datetime | str | None = None
+    estimated_delivery_max: datetime | str | None = None
+    estimated_delivery_duration: str | None = None
+    eta_source: str | None = None
+    eta_notes: str | None = None
+    eta_label: str | None = None
 
 
 class OrderHistoryRead(OrderRead):
