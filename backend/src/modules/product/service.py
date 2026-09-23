@@ -468,6 +468,8 @@ def _variant_to_dict(variant: ProductVariant) -> dict[str, Any]:
 
 def _price_setting_item_to_dict(item: PriceProductSettingItem) -> dict[str, Any]:
     pps = item.setting
+    if not pps:
+        return {}
     return {
         "id": pps.id,
         "code": pps.code,
@@ -484,14 +486,14 @@ def _price_setting_item_to_dict(item: PriceProductSettingItem) -> dict[str, Any]
         "image_url": get_media_url(pps.image_url),
         "is_active": pps.is_active,
         "is_featured": pps.is_featured,
-        "sort_order": pps.sort_order,
+        "sort_order": getattr(pps, "sort_order", 0),
         "volume_tiers": [
             {
                 "id": vt.id,
                 "min_purchase": vt.min_purchase,
                 "discount_type": vt.discount_type,
                 "discount_value": vt.discount_value,
-                "sort_order": vt.sort_order,
+                "sort_order": getattr(vt, "sort_order", 0),
             }
             for vt in (pps.volume_tiers or [])
         ],
