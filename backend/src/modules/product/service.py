@@ -528,6 +528,7 @@ class ProductService:
             )
             .where(
                 Product.deleted.is_(False),
+                or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
                 Product.variants.any(ProductVariant.sell_price > 0)
             )
             .offset(skip)
@@ -535,6 +536,7 @@ class ProductService:
         )
         count_query = select(func.count()).select_from(Product).where(
             Product.deleted.is_(False),
+            or_(Product.show_on_web == True, Product.show_on_web.is_(None)),
             Product.variants.any(ProductVariant.sell_price > 0)
         )
 

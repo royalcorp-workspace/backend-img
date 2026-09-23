@@ -56,6 +56,91 @@ PAYMENT_STATUS_MAP: dict[int, str] = {
     PAYMENT_PARTIAL: "Dibayar Sebagian",
 }
 
+DELIVERY_STATUS_MAP: dict[str, dict[str, str]] = {
+    "order_created": {"label": "Pesanan Dibuat", "icon": "shopping_bag"},
+    "created": {"label": "Pesanan Dibuat", "icon": "shopping_bag"},
+    "order_placed": {"label": "Pesanan Dibuat", "icon": "shopping_bag"},
+    "payment_verified": {"label": "Pembayaran Terverifikasi", "icon": "paid"},
+    "paid": {"label": "Pembayaran Terverifikasi", "icon": "paid"},
+    "confirmed": {"label": "Pesanan Dikonfirmasi", "icon": "verified"},
+    "processing": {"label": "Pesanan Diproses", "icon": "inventory_2"},
+    "diproses": {"label": "Pesanan Diproses", "icon": "inventory_2"},
+    "sedang_dikemas": {"label": "Sedang Dikemas", "icon": "package"},
+    "packing": {"label": "Sedang Dikemas", "icon": "package"},
+    "dikemas": {"label": "Selesai Dikemas", "icon": "inventory_2"},
+    "packed": {"label": "Selesai Dikemas", "icon": "inventory_2"},
+    "siap_dikirim": {"label": "Selesai Dikemas", "icon": "inventory_2"},
+    "diserahkan_ke_kurir": {"label": "Diserahkan ke Kurir", "icon": "local_shipping"},
+    "handover": {"label": "Diserahkan ke Kurir", "icon": "local_shipping"},
+    "handed_over": {"label": "Diserahkan ke Kurir", "icon": "local_shipping"},
+    "allocated": {"label": "Kurir Telah Ditugaskan", "icon": "assignment_ind"},
+    "picking_up": {"label": "Kurir Menjemput Paket", "icon": "directions_run"},
+    "picked": {"label": "Paket Diambil Kurir", "icon": "inventory_2"},
+    "in_transit": {"label": "Dalam Perjalanan (Transit)", "icon": "sync_alt"},
+    "on_process": {"label": "Dalam Perjalanan (Transit)", "icon": "sync_alt"},
+    "dropping_off": {"label": "Sedang Diantar ke Tujuan", "icon": "local_shipping"},
+    "out_for_delivery": {"label": "Sedang Diantar ke Tujuan", "icon": "local_shipping"},
+    "delivered": {"label": "Paket Diterima", "icon": "check_circle"},
+    "returned": {"label": "Paket Retur", "icon": "undo"},
+    "return_in_transit": {"label": "Paket Retur", "icon": "undo"},
+    "cancelled": {"label": "Pengiriman Dibatalkan", "icon": "cancel"},
+    "rejected": {"label": "Pengiriman Dibatalkan", "icon": "cancel"},
+    "waybill_updated": {"label": "Resi Diterbitkan", "icon": "receipt_long"},
+    "waybill_issued": {"label": "Resi Diterbitkan", "icon": "receipt_long"},
+    "price_updated": {"label": "Penyesuaian Ongkir", "icon": "price_change"},
+    "pending": {"label": "Menunggu Kurir", "icon": "schedule"},
+}
+
+
+def _resolve_delivery_status_info(status_key: str | None) -> dict[str, str]:
+    if not status_key:
+        return {"label": "Menunggu Update", "icon": "info"}
+    key = str(status_key).lower().strip()
+    if key in DELIVERY_STATUS_MAP:
+        return DELIVERY_STATUS_MAP[key]
+    return {
+        "label": key.replace("_", " ").title(),
+        "icon": "info",
+    }
+
+
+def _status_stage_weight(status_key: str | None) -> int:
+    weights = {
+        "order_created": -3,
+        "created": -3,
+        "order_placed": -3,
+        "payment_verified": -2,
+        "paid": -2,
+        "confirmed": -2,
+        "processing": -1,
+        "diproses": -1,
+        "sedang_dikemas": 1,
+        "packing": 1,
+        "dikemas": 2,
+        "packed": 2,
+        "siap_dikirim": 2,
+        "diserahkan_ke_kurir": 3,
+        "handover": 3,
+        "handed_over": 3,
+        "waybill_updated": 4,
+        "waybill_issued": 4,
+        "price_updated": 5,
+        "allocated": 6,
+        "picking_up": 7,
+        "picked": 8,
+        "on_process": 9,
+        "in_transit": 9,
+        "dropping_off": 10,
+        "out_for_delivery": 10,
+        "delivered": 11,
+        "returned": 12,
+        "return_in_transit": 12,
+        "cancelled": 13,
+        "rejected": 13,
+    }
+    return weights.get(str(status_key).lower().strip() if status_key else "", 0)
+
+
 
 def _safe_uuid(val: Any) -> UUID | None:
     if val is None:
@@ -609,6 +694,13 @@ class OrderService:
             data["courier_code"] = tracking_info.get("courier_code")
             data["tracking_logs"] = tracking_info.get("events")
             data["tracking_payload"] = tracking_info.get("latest_payload")
+            data["estimated_delivery_at"] = tracking_info.get("estimated_delivery_at")
+            data["estimated_delivery_min"] = tracking_info.get("estimated_delivery_min")
+            data["estimated_delivery_max"] = tracking_info.get("estimated_delivery_max")
+            data["estimated_delivery_duration"] = tracking_info.get("estimated_delivery_duration")
+            data["eta_source"] = tracking_info.get("eta_source")
+            data["eta_notes"] = tracking_info.get("eta_notes")
+            data["eta_label"] = tracking_info.get("eta_label")
             return data
 
         # Check in void_orders table
@@ -625,9 +717,10 @@ class OrderService:
         raise ResourceNotFoundError(f"Order with ID {order_id} not found")
 
     async def get_order_tracking(self, db: AsyncSession, identifier: UUID | str) -> dict[str, Any]:
-        """Fetch tracking info and raw payload from delivery_logs and deliveries tables by UUID, order_number, or waybill_id."""
+        """Fetch tracking info and timeline events from order, delivery, and delivery_logs tables by UUID, order_number, or waybill_id."""
         try:
             target_order_id: UUID | None = _safe_uuid(identifier)
+            order: Order | None = None
             order_number: str | None = None
             order_status: int | None = None
             status_label: str | None = None
@@ -637,32 +730,132 @@ class OrderService:
                 order_stmt = select(Order).where(Order.id == target_order_id)
                 order_res = await db.execute(order_stmt)
                 order = order_res.scalar_one_or_none()
-                if order:
-                    order_number = order.order_number
-                    order_status = order.status
-                    status_label = _resolve_status_label(order.status)
             else:
                 str_id = str(identifier).strip()
                 order_stmt = select(Order).where(func.lower(Order.order_number) == str_id.lower())
                 order_res = await db.execute(order_stmt)
                 order = order_res.scalar_one_or_none()
-                if order:
-                    target_order_id = order.id
-                    order_number = order.order_number
-                    order_status = order.status
-                    status_label = _resolve_status_label(order.status)
+
+            if order:
+                target_order_id = order.id
+                order_number = order.order_number
+                order_status = order.status
+                status_label = _resolve_status_label(order.status)
 
             # 2. Check deliveries table if order_id is known
             tracking_number: str | None = None
             courier_code: str | None = None
+            courier_name: str | None = None
+            estimated_delivery_at: Any = None
+            estimated_delivery_min: Any = None
+            estimated_delivery_max: Any = None
+            estimated_delivery_duration: str | None = None
+            eta_source: str | None = None
+            eta_notes: str | None = None
+            eta_label: str | None = None
+
             if target_order_id:
                 deliv_res = await db.execute(
-                    text("SELECT id, tracking_number, courier_id, status FROM deliveries WHERE order_id = :target_oid LIMIT 1"),
+                    text("""
+                        SELECT d.id, d.tracking_number, d.courier_id, d.status,
+                               d.estimated_delivery_at, d.estimated_delivery_min, d.estimated_delivery_max,
+                               d.estimated_delivery_duration, d.eta_source, d.eta_notes,
+                               c.code, c.name
+                        FROM deliveries d
+                        LEFT JOIN couriers c ON c.id = d.courier_id
+                        WHERE d.order_id = :target_oid
+                        LIMIT 1
+                    """),
                     {"target_oid": str(target_order_id)},
                 )
                 deliv_row = deliv_res.fetchone()
                 if deliv_row:
                     tracking_number = deliv_row[1]
+                    estimated_delivery_at = deliv_row[4]
+                    estimated_delivery_min = deliv_row[5]
+                    estimated_delivery_max = deliv_row[6]
+                    estimated_delivery_duration = deliv_row[7]
+                    eta_source = deliv_row[8]
+                    eta_notes = deliv_row[9]
+                    courier_code = deliv_row[10]
+                    courier_name = deliv_row[11]
+
+                    min_d = estimated_delivery_min or estimated_delivery_at
+                    max_d = estimated_delivery_max or estimated_delivery_at
+                    if min_d and max_d:
+                        try:
+                            if hasattr(min_d, "date") and hasattr(max_d, "date"):
+                                if min_d.date() == max_d.date():
+                                    date_str = min_d.strftime("%d %b")
+                                else:
+                                    date_str = f"{min_d.strftime('%d')} - {max_d.strftime('%d %b')}"
+                            else:
+                                date_str = str(min_d)
+                            dur_str = f" ({estimated_delivery_duration})" if estimated_delivery_duration else ""
+                            eta_label = f"Estimasi tiba {date_str}{dur_str}"
+                        except Exception:
+                            eta_label = f"Estimasi tiba {estimated_delivery_duration}" if estimated_delivery_duration else None
+                    elif estimated_delivery_duration:
+                        eta_label = f"Estimasi tiba {estimated_delivery_duration}"
+
+            # Check related order records (picking, packing, handover, payments)
+            has_picking = False
+            picking_created_at = None
+            has_packing = False
+            packing_status = None
+            packing_created_at = None
+            has_handover = False
+            handover_created_at = None
+            payment_created_at = None
+
+            if target_order_id:
+                try:
+                    pick_res = await db.execute(
+                        text("SELECT id, created_at FROM picking_lists WHERE order_id = :oid LIMIT 1"),
+                        {"oid": str(target_order_id)},
+                    )
+                    pick_row = pick_res.fetchone()
+                    if pick_row:
+                        has_picking = True
+                        picking_created_at = pick_row[1]
+                except Exception:
+                    pass
+
+                try:
+                    pack_res = await db.execute(
+                        text("SELECT id, status, created_at FROM packing_slips WHERE order_id = :oid LIMIT 1"),
+                        {"oid": str(target_order_id)},
+                    )
+                    pack_row = pack_res.fetchone()
+                    if pack_row:
+                        has_packing = True
+                        packing_status = pack_row[1]
+                        packing_created_at = pack_row[2]
+                except Exception:
+                    pass
+
+                try:
+                    hand_res = await db.execute(
+                        text("SELECT id, handover_at, created_at FROM hand_overs WHERE order_id = :oid LIMIT 1"),
+                        {"oid": str(target_order_id)},
+                    )
+                    hand_row = hand_res.fetchone()
+                    if hand_row:
+                        has_handover = True
+                        handover_created_at = hand_row[1] or hand_row[2]
+                except Exception:
+                    pass
+
+                try:
+                    pay_res = await db.execute(
+                        text("SELECT id, created_at FROM payments WHERE order_id = :oid AND status = 'success' ORDER BY created_at DESC LIMIT 1"),
+                        {"oid": str(target_order_id)},
+                    )
+                    pay_row = pay_res.fetchone()
+                    if pay_row:
+                        payment_created_at = pay_row[1]
+                except Exception:
+                    pass
 
             # 3. Check delivery_logs
             str_id = str(identifier).strip()
@@ -691,39 +884,17 @@ class OrderService:
             logs_res = await db.execute(logs_query, params)
             logs = logs_res.fetchall()
 
-            events = []
             waybill_id = tracking_number
-            latest_payload = None
-
             for row in logs:
                 r_id, r_order_id, r_waybill, r_biteship_id, r_courier, r_event, r_status, r_loc, r_note, r_payload, r_created = row
                 if not target_order_id and r_order_id:
                     target_order_id = r_order_id
                 if r_waybill:
                     waybill_id = r_waybill
-                if r_courier:
+                if r_courier and not courier_code:
                     courier_code = r_courier
 
-                p_data = r_payload if isinstance(r_payload, dict) else (json.loads(r_payload) if isinstance(r_payload, str) else {})
-                if p_data:
-                    latest_payload = p_data
-                    if not order_number and isinstance(p_data.get("metadata"), dict):
-                        order_number = p_data["metadata"].get("order_number")
-
-                events.append({
-                    "id": str(r_id),
-                    "waybill_id": r_waybill,
-                    "courier_code": r_courier,
-                    "biteship_order_id": r_biteship_id,
-                    "event": r_event,
-                    "status": r_status,
-                    "location": r_loc,
-                    "note": r_note,
-                    "payload": p_data,
-                    "created_at": _safe_datetime(r_created),
-                })
-
-            if target_order_id and not order_number:
+            if target_order_id and not order:
                 order_stmt = select(Order).where(Order.id == target_order_id)
                 order_res = await db.execute(order_stmt)
                 order = order_res.scalar_one_or_none()
@@ -732,17 +903,164 @@ class OrderService:
                     order_status = order.status
                     status_label = _resolve_status_label(order.status)
 
+            c_display_name = courier_name or (courier_code.upper() if courier_code else "Kurir")
+
+            has_log_sedang_dikemas = any(str(r[6]).lower().strip() in ("sedang_dikemas", "packing") for r in logs)
+            has_log_dikemas = any(str(r[6]).lower().strip() in ("dikemas", "packed", "siap_dikirim") for r in logs)
+            has_log_handover = any(str(r[6]).lower().strip() in ("diserahkan_ke_kurir", "handover", "handed_over") for r in logs)
+            has_log_delivered = any(str(r[6]).lower().strip() == "delivered" for r in logs)
+
+            events: list[dict[str, Any]] = []
+
+            # 1. Pesanan Dibuat
+            if order and order.created_at:
+                events.append({
+                    "stage": "created",
+                    "status": "Pesanan Dibuat",
+                    "raw_status": "order_created",
+                    "event": "order.created",
+                    "icon": "shopping_bag",
+                    "location": "Online Store",
+                    "description": f"Pesanan #{order.order_number} berhasil dibuat oleh pelanggan.",
+                    "created_at": _safe_datetime(order.created_at),
+                    "weight": -3,
+                })
+
+            # 2. Pembayaran Berhasil
+            if order and ((order.payment_status == 1) or (order.status is not None and order.status >= 2)):
+                pay_time = payment_created_at or (order.created_at + datetime.timedelta(seconds=30) if order.created_at else datetime.datetime.now())
+                pay_method = order.payment_method.replace("_", " ").title() if order.payment_method else "Metode Pembayaran"
+                events.append({
+                    "stage": "paid",
+                    "status": "Pembayaran Terverifikasi",
+                    "raw_status": "payment_verified",
+                    "event": "payment.verified",
+                    "icon": "paid",
+                    "location": "Sistem Pembayaran",
+                    "description": f"Pembayaran pesanan telah diverifikasi via {pay_method}. Pesanan siap diproses.",
+                    "created_at": _safe_datetime(pay_time),
+                    "weight": -2,
+                })
+
+            # 3. Pesanan Diproses (Picking)
+            if order and ((order.status is not None and order.status >= 3) or has_picking):
+                proc_time = picking_created_at or (order.created_at + datetime.timedelta(minutes=5) if order.created_at else datetime.datetime.now())
+                events.append({
+                    "stage": "processing",
+                    "status": "Pesanan Diproses",
+                    "raw_status": "processing",
+                    "event": "order.processing",
+                    "icon": "inventory_2",
+                    "location": "Gudang Pengirim",
+                    "description": "Pesanan sedang diproses dan disiapkan oleh tim gudang.",
+                    "created_at": _safe_datetime(proc_time),
+                    "weight": -1,
+                })
+
+            # 4. Sedang Dikemas / Selesai Dikemas
+            is_packed_stage = has_packing or (order and order.status is not None and order.status >= 3)
+            if is_packed_stage and not has_log_sedang_dikemas and not has_log_dikemas:
+                pack_time = packing_created_at or (order.created_at + datetime.timedelta(minutes=15) if order.created_at else datetime.datetime.now())
+                is_done_packing = (str(packing_status).lower() in ("3", "packed")) or (order and order.status is not None and order.status >= 4) or bool(waybill_id)
+                pack_label = "Selesai Dikemas" if is_done_packing else "Sedang Dikemas"
+                pack_desc = "Pesanan telah selesai dikemas rapi dan siap diserahkan ke kurir pengiriman." if is_done_packing else "Pesanan sedang dikemas oleh tim gudang."
+                events.append({
+                    "stage": "packing",
+                    "status": pack_label,
+                    "raw_status": "dikemas" if is_done_packing else "sedang_dikemas",
+                    "event": "order.packed" if is_done_packing else "order.packing",
+                    "icon": "package",
+                    "location": "Bagian Packing Gudang",
+                    "description": pack_desc,
+                    "created_at": _safe_datetime(pack_time),
+                    "weight": 2 if is_done_packing else 1,
+                })
+
+            # 5. Diserahkan ke Kurir
+            is_handover_stage = has_handover or (order and order.status is not None and order.status >= 4) or bool(waybill_id)
+            if is_handover_stage and not has_log_handover:
+                hand_time = handover_created_at or (order.created_at + datetime.timedelta(minutes=30) if order.created_at else datetime.datetime.now())
+                events.append({
+                    "stage": "handover",
+                    "status": "Diserahkan ke Kurir",
+                    "raw_status": "diserahkan_ke_kurir",
+                    "event": "order.handover",
+                    "icon": "local_shipping",
+                    "location": "Gudang Pengirim",
+                    "description": f"Paket telah diserahkan kepada kurir {c_display_name}" + (f" (No. Resi: {waybill_id})" if waybill_id else "") + ".",
+                    "created_at": _safe_datetime(hand_time),
+                    "weight": 3,
+                })
+
+            # 6. Checkpoint log pengiriman riil (Biteship / Ekspedisi)
+            for row in logs:
+                r_id, r_order_id, r_waybill, r_biteship_id, r_courier, r_event, r_status, r_loc, r_note, r_payload, r_created = row
+                info = _resolve_delivery_status_info(r_status)
+                desc = r_note or (f"{info['label']}" + (f" di {r_loc}" if r_loc else ""))
+
+                events.append({
+                    "id": str(r_id),
+                    "stage": f"log_{r_id}",
+                    "waybill_id": r_waybill,
+                    "courier_code": r_courier,
+                    "status": info["label"],
+                    "raw_status": r_status,
+                    "event": r_event,
+                    "icon": info["icon"],
+                    "location": r_loc or ("Alamat Tujuan" if str(r_status).lower() == "delivered" else f"Ekspedisi {c_display_name}"),
+                    "description": desc,
+                    "created_at": _safe_datetime(r_created),
+                    "weight": _status_stage_weight(r_status),
+                })
+
+            # 7. Paket Diterima
+            if order and order.status == 5 and not has_log_delivered:
+                events.append({
+                    "stage": "delivered",
+                    "status": "Paket Diterima",
+                    "raw_status": "delivered",
+                    "event": "order.delivered",
+                    "icon": "check_circle",
+                    "location": "Alamat Penerima",
+                    "description": "Paket telah berhasil diterima di alamat tujuan. Pesanan selesai.",
+                    "created_at": _safe_datetime(order.updated_at or datetime.datetime.now()),
+                    "weight": 11,
+                })
+
+            # Sort descending: newest event first
+            events.sort(
+                key=lambda ev: (
+                    ev.get("created_at").timestamp() if isinstance(ev.get("created_at"), datetime.datetime) else 0,
+                    ev.get("weight", 0)
+                ),
+                reverse=True
+            )
+
+            latest_event = events[0] if events else None
+            current_status = latest_event["status"] if latest_event else (status_label or "Menunggu Pengiriman")
+
             return {
                 "order_id": target_order_id,
                 "order_number": order_number,
                 "status": order_status,
-                "status_label": status_label,
+                "status_label": current_status,
+                "current_status": current_status,
+                "current_status_raw": latest_event.get("raw_status") if latest_event else None,
+                "current_status_icon": latest_event.get("icon") if latest_event else "info",
                 "tracking_number": tracking_number or waybill_id,
-                "waybill_id": waybill_id,
+                "waybill_id": waybill_id or tracking_number,
                 "courier_code": courier_code,
+                "courier_name": c_display_name,
+                "estimated_delivery_at": estimated_delivery_at,
+                "estimated_delivery_min": estimated_delivery_min,
+                "estimated_delivery_max": estimated_delivery_max,
+                "estimated_delivery_duration": estimated_delivery_duration,
+                "eta_source": eta_source,
+                "eta_notes": eta_notes,
+                "eta_label": eta_label,
                 "events": events,
-                "latest_payload": latest_payload,
-                "payload": latest_payload,
+                "latest_payload": None,
+                "payload": None,
             }
         except Exception as e:
             logger.warning(f"Failed to fetch tracking for identifier {identifier}: {e}")
@@ -751,9 +1069,20 @@ class OrderService:
                 "order_number": None,
                 "status": None,
                 "status_label": None,
+                "current_status": None,
+                "current_status_raw": None,
+                "current_status_icon": "info",
                 "tracking_number": None,
                 "waybill_id": None,
                 "courier_code": None,
+                "courier_name": None,
+                "estimated_delivery_at": None,
+                "estimated_delivery_min": None,
+                "estimated_delivery_max": None,
+                "estimated_delivery_duration": None,
+                "eta_source": None,
+                "eta_notes": None,
+                "eta_label": None,
                 "events": [],
                 "latest_payload": None,
                 "payload": None,
