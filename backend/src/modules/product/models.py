@@ -356,3 +356,38 @@ class ProductBundlingItem(Base, TimestampMixin):
     bundling: Mapped["ProductBundling"] = relationship("ProductBundling", back_populates="items", init=False)
     product: Mapped["Product"] = relationship("Product", lazy="selectin", init=False)
     variant: Mapped["ProductVariant"] = relationship("ProductVariant", lazy="selectin", init=False)
+
+
+class ProductTag(Base, TimestampMixin):
+    __tablename__ = "product_tags"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        init=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    sort_order: Mapped[int | None] = mapped_column(Integer, default=0)
+    creator: Mapped[str | None] = mapped_column(String(255), default=None)
+    editor: Mapped[str | None] = mapped_column(String(255), default=None)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ProductTagRelation(Base, TimestampMixin):
+    __tablename__ = "product_tag_relations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        init=False,
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    tag_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("product_tags.id"), nullable=False)
+    creator: Mapped[str | None] = mapped_column(String(255), default=None)
+    editor: Mapped[str | None] = mapped_column(String(255), default=None)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+

@@ -117,6 +117,8 @@ class ProductRead(ProductBase):
     avg_rating: float = 0.0
     total_reviews: int = 0
     final_price: float = 0.0
+    tag_ids: list[str] = []
+    tags: list[dict[str, Any]] = []
 
     @field_validator("images", mode="before")
     @classmethod

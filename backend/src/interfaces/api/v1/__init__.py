@@ -45,3 +45,9 @@ router.include_router(add_to_cart_router, prefix="/add-to-cart")
 router.include_router(regions_router, prefix="/regions")
 router.include_router(chat_router)
 router.include_router(payment_router)
+
+from ....modules.product.routes import get_product_tags
+product_tags_router = APIRouter(tags=["Product Tags"])
+product_tags_router.add_api_route("", get_product_tags, methods=["GET"], summary="Get Product Tags")
+router.include_router(product_tags_router, prefix="/product-tags")
+

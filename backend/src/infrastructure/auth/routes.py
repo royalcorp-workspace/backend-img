@@ -26,7 +26,7 @@ from ...modules.user.crud import crud_users
 from ...modules.user.enums import OAuthProvider
 from ...modules.user.firebase_auth import verify_firebase_id_token
 from ...modules.user.schemas import UserCreateInternal
-from ..dependencies import AsyncSessionDep
+from ..dependencies import AsyncSessionDep, CurrentUserDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
 from .oauth import OAUTH_STATE_TTL_SECONDS, oauth_account_service, oauth_providers, oauth_state_storage
@@ -384,18 +384,74 @@ async def firebase_login(
         )
         customer["addresses"] = address_result.get("data", []) if address_result else []
 
+    must_set_password = bool(not user or not user.password or user.password.strip() == "")
+
     return {
         "csrf_token": csrf_token,
         "access_token": token_body["access_token"],
         "refresh_token": token_body.get("refresh_token"),
         "token_type": token_body.get("token_type", "bearer"),
+        "must_set_password": must_set_password,
         "user": {
             "id": user_id,
             "email": email,
             "name": display_name or email,
             "username": username,
             "customer": customer,
+            "must_set_password": must_set_password,
         },
+    }
+
+
+class SetInitialPasswordRequest(BaseModel):
+    password: str = Field(..., min_length=8, description="Password baru minimal 8 karakter")
+    confirm_password: str | None = Field(None, description="Konfirmasi password baru")
+
+
+@router.post(
+    "/set-initial-password",
+    summary="Set Initial Password",
+    description="Set a strong password for Google / SSO users on their first login.",
+    responses={
+        200: {"description": "Password set successfully"},
+        400: {"description": "Password does not meet strong criteria or confirmation mismatch"},
+        401: {"description": "Not authenticated"},
+    },
+)
+async def set_initial_password(
+    data: SetInitialPasswordRequest,
+    current_user: CurrentUserDep,
+    db: AsyncSessionDep,
+) -> dict[str, Any]:
+    import re
+    from sqlalchemy import update
+    from ...modules.user.models import User
+
+    password = data.password
+    if data.confirm_password and data.confirm_password != password:
+        raise HTTPException(status_code=400, detail="Konfirmasi password tidak cocok.")
+
+    # Strong password validation: min 8, uppercase, lowercase, digit, symbol
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password minimal harus 8 karakter.")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 huruf kecil.")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 huruf besar.")
+    if not re.search(r"[0-9]", password):
+        raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 angka.")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>\-+=_\[\]\\\/~`]", password):
+        raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 simbol karakter khusus (contoh: @, #, $, !).")
+
+    hashed_pw = get_password_hash(password)
+    await db.execute(
+        update(User).where(User.id == current_user["id"]).values(password=hashed_pw)
+    )
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Password berhasil dibuat dan disimpan.",
     }
 
 

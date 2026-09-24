@@ -124,6 +124,10 @@ class OrderRead(BaseModel):
     tracking_number: str | None = None
     waybill_id: str | None = None
     courier_code: str | None = None
+    courier_name: str | None = None
+    courier: dict[str, Any] | None = None
+    voucher: dict[str, Any] | None = None
+    voucher_code: str | None = None
     tracking_logs: list[dict[str, Any]] | None = None
     tracking_payload: dict[str, Any] | None = None
     estimated_delivery_at: datetime | str | None = None

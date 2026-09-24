@@ -94,7 +94,7 @@ PRODUCT_EXAMPLE = {
 
 
 @router.get('/', response_model=PaginatedListResponse[ProductRead], summary='List Products', description='Get a paginated list of products with optional filters.', responses={200: {'description': 'Paginated list of products', 'content': {'application/json': {'example': {'data': [{'id': 1, 'name': 'DV (L1) HOTEL CLASSIC LH-8', 'slug': 'dvl100220010607', 'category_id': 3, 'thumbnail': 'https://example.com/images/dvl100220010607.jpg', 'alt_text': 'DV (L1) HOTEL CLASSIC LH-8 Image', 'short_description': '200 X 090', 'description': 'Produk disinkronkan dari POS JDE: DV (L1) HOTEL CLASSIC LH-8', 'base_price': 0.0, 'segments': {'uom': 'PC', 'segment1': 'DV', 'segment2': 'L1002200', 'segment3': '10607', 'segment4': 'S', 'segment5': '200', 'segment6': '090', 'segment7': '', 'segment8': '', 'segment9': '', 'segment10': '', 'base_price': 0}, 'best_seller': True, 'is_new': False, 'sort_order': 1, 'status': True, 'images': [{'id': 1, 'product_id': 1, 'image': 'https://example.com/images/dvl100220010607.jpg', 'alt_text': 'DV (L1) HOTEL CLASSIC LH-8 Image', 'status': True}], 'variants': [{'id': 1, 'product_id': 1, 'sku': 'DVL100220010607S200090', 'variant_name': '200 X 090', 'width': 90.0, 'length': 200.0, 'height': 0.0, 'weight': 0.0, 'price': 0.0, 'status': True, 'price_product_settings': []}], 'colors': [{'id': 1, 'product_id': 1, 'color_name': 'Fabric 10607', 'color_code': '10607', 'status': True}], 'price_product_settings': [{'id': 1, 'title': 'Diskon Weekend', 'code': 'WEEKEND10', 'discount_type': 1, 'discount_value': 10.0, 'max_discount': 50000.0, 'min_purchase': 0.0, 'is_active': True}], 'reviews': [], 'avg_rating': 0.0, 'total_reviews': 0}], 'total_count': 1, 'has_more': False, 'page': 1, 'items_per_page': 10}}}}, 401: {'description': 'Not authenticated', 'content': {'application/json': {'example': {'detail': 'Not authenticated', 'support_id': 'a1b2c3d4'}}}}, 403: {'description': 'Not authorized', 'content': {'application/json': {'example': {'detail': 'Not authorized', 'support_id': 'a1b2c3d4'}}}}})
-async def list_products(db: AsyncSessionDep, current_user: Annotated[dict[str, Any], Depends(get_current_user)], product_service: ProductServiceDep, page: int=1, items_per_page: int=10, category_id: UUID | None=None, status: int | None=None, best_seller: bool | None=None, is_new: bool | None=None, search: str | None=None) -> dict[str, Any]:
+async def list_products(db: AsyncSessionDep, current_user: Annotated[dict[str, Any], Depends(get_current_user)], product_service: ProductServiceDep, page: int=1, items_per_page: int=10, category_id: UUID | None=None, status: int | None=None, best_seller: bool | None=None, is_new: bool | None=None, search: str | None=None, tag_id: UUID | None=None, tag_ids: str | None=None) -> dict[str, Any]:
     filters = {}
     if category_id is not None:
         filters['category_id'] = category_id
@@ -106,8 +106,29 @@ async def list_products(db: AsyncSessionDep, current_user: Annotated[dict[str, A
         filters['is_new'] = is_new
     if search:
         filters['name__ilike'] = f'%{search}%'
+    if tag_id is not None:
+        filters['tag_id'] = tag_id
+    if tag_ids:
+        filters['tag_ids'] = tag_ids
     crud_data = await product_service.get_paginated(db=db, skip=compute_offset(page, items_per_page), limit=items_per_page, **filters)
     return paginated_response(crud_data=crud_data, page=page, items_per_page=items_per_page)
+
+@router.get('/tags', summary='Get Product Tags', description='Retrieve all active product tags.')
+async def get_product_tags(db: AsyncSessionDep) -> list[dict[str, Any]]:
+    from sqlalchemy import select
+    from .models import ProductTag
+    stmt = select(ProductTag).where(ProductTag.deleted == False).order_by(ProductTag.sort_order.asc(), ProductTag.name.asc())
+    res = await db.execute(stmt)
+    tags = res.scalars().all()
+    return [
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "slug": t.slug,
+            "sort_order": t.sort_order,
+        }
+        for t in tags
+    ]
 
 @router.get('/bundlings', response_model=dict, summary='List Active Product Bundlings', description='Get all active product bundlings with their items.')
 async def get_bundlings(db: AsyncSessionDep):

@@ -420,6 +420,20 @@ async def get_order_tracking(
 
 
 @router.post(
+    "/{order_id}/cancel",
+    summary="Cancel Unpaid Order",
+    description="Cancel an unpaid order so the customer can place a new order or modify items.",
+)
+async def cancel_unpaid_order(
+    order_id: str,
+    db: AsyncSessionDep,
+    order_service: OrderServiceDep,
+    user: Annotated[dict[str, Any] | None, Depends(get_optional_user)] = None,
+) -> dict[str, Any]:
+    return await order_service.cancel_order(db, order_id, user=user)
+
+
+@router.post(
     "/",
     response_model=OrderRead,
     status_code=201,

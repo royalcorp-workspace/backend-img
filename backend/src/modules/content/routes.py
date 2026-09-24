@@ -72,7 +72,7 @@ async def list_warranty_claims(db: AsyncSessionDep, _: Annotated[dict[str, Any],
 @router.get('/warranty-claims/{item_id}', response_model=WarrantyClaimRead, summary='Get Warranty Claim record', tags=['Content: Warranty Claim'])
 async def get_warranty_claim(item_id: uuid.UUID, db: AsyncSessionDep, _: Annotated[dict[str, Any], Depends(require_permission('content:read'))], service: ContentServiceDep) -> dict[str, Any]:
     return await service.get_warranty_claim_by_id(db, item_id)
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from .models import Banner, Event, HomepageSection, Notification
 from .schemas import HomepageSectionRead
@@ -99,16 +99,50 @@ async def get_homepage_sections(db: AsyncSessionDep, service: ContentServiceDep)
 async def get_active_events(db: AsyncSessionDep):
     from datetime import datetime
     now = datetime.now()
-    stmt = select(Event).options(selectinload(Event.popups)).where(Event.deleted == False, Event.is_active == True, Event.start_date <= now, Event.end_date >= now)
+    stmt = (
+        select(Event)
+        .options(selectinload(Event.popups))
+        .where(
+            Event.deleted == False,
+            Event.is_active == True,
+            or_(Event.start_date.is_(None), Event.start_date <= now),
+            or_(Event.end_date.is_(None), Event.end_date >= now),
+        )
+    )
     result = await db.execute(stmt)
     events = result.scalars().unique().all()
+    events_data = []
     for ev in events:
-        if ev.banner_image:
-            ev.banner_image = get_media_url(ev.banner_image)
+        popups_data = []
         for pop in (getattr(ev, "popups", []) or []):
-            if pop.image_url:
-                pop.image_url = get_media_url(pop.image_url)
-    return {'success': True, 'data': events}
+            if getattr(pop, "is_active", True):
+                popups_data.append({
+                    "id": pop.id,
+                    "event_id": pop.event_id,
+                    "title": pop.title,
+                    "image_url": get_media_url(pop.image_url) if pop.image_url else None,
+                    "link_url": pop.link_url,
+                    "button_text": pop.button_text,
+                    "is_active": pop.is_active,
+                    "created_at": pop.created_at,
+                    "updated_at": pop.updated_at,
+                })
+        events_data.append({
+            "id": ev.id,
+            "title": ev.title,
+            "slug": ev.slug,
+            "description": ev.description,
+            "start_date": ev.start_date,
+            "end_date": ev.end_date,
+            "is_active": ev.is_active,
+            "event_type": ev.event_type,
+            "banner_image": get_media_url(ev.banner_image) if ev.banner_image else None,
+            "banner_image_url": get_media_url(ev.banner_image) if ev.banner_image else None,
+            "created_at": ev.created_at,
+            "updated_at": ev.updated_at,
+            "popups": popups_data,
+        })
+    return {'success': True, 'data': events_data}
 
 @router.get('/notifications', summary='Get Broadcast Notifications', description='Get latest notifications', tags=['Content: App Layout'])
 async def get_notifications(db: AsyncSessionDep):

@@ -15,7 +15,14 @@ from .crud import (
     crud_products,
     crud_variants,
 )
-from .models import PriceProductSetting, PriceProductSettingItem, Product, ProductVariant
+from .models import (
+    PriceProductSetting,
+    PriceProductSettingItem,
+    Product,
+    ProductTag,
+    ProductTagRelation,
+    ProductVariant,
+)
 from .schemas import (
     ProductColorCreate,
     ProductCreate,
@@ -25,6 +32,17 @@ from .schemas import (
 )
 
 logger = get_logger()
+
+
+def _safe_uuid(val: Any) -> UUID | None:
+    if not val:
+        return None
+    if isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val).strip())
+    except (ValueError, TypeError):
+        return None
 
 
 def _natural_sort_key(s: Any) -> list[int | str]:
@@ -397,6 +415,8 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
             }
             for s in (getattr(product, "suggestions", []) or [])
         ],
+        "tag_ids": [],
+        "tags": [],
     }
     _build_product_groups(res)
     return res
@@ -547,6 +567,32 @@ class ProductService:
                 cond = or_(Product.category_id == value, Product.brand_id == value)
                 query = query.where(cond)
                 count_query = count_query.where(cond)
+            elif key in ("tag_id", "tag_id__eq"):
+                tag_uuid = _safe_uuid(value) or value
+                tag_cond = Product.id.in_(
+                    select(ProductTagRelation.product_id).where(
+                        ProductTagRelation.tag_id == tag_uuid,
+                        ProductTagRelation.deleted == False,
+                    )
+                )
+                query = query.where(tag_cond)
+                count_query = count_query.where(tag_cond)
+            elif key in ("tag_ids", "tag_ids__in"):
+                tag_list = []
+                if isinstance(value, str):
+                    tag_list = [v.strip() for v in value.split(",") if v.strip()]
+                elif isinstance(value, (list, set, tuple)):
+                    tag_list = list(value)
+                valid_tag_uuids = [_safe_uuid(t) or t for t in tag_list if t]
+                if valid_tag_uuids:
+                    tag_cond = Product.id.in_(
+                        select(ProductTagRelation.product_id).where(
+                            ProductTagRelation.tag_id.in_(valid_tag_uuids),
+                            ProductTagRelation.deleted == False,
+                        )
+                    )
+                    query = query.where(tag_cond)
+                    count_query = count_query.where(tag_cond)
             elif "__" in key:
                 field_name, operator = key.rsplit("__", 1)
                 column = getattr(Product, field_name, None)
@@ -587,8 +633,28 @@ class ProductService:
         total_result = await db.execute(count_query)
         total = total_result.scalar()
 
+        tags_by_product: dict[UUID, list[dict[str, Any]]] = {}
         if products:
             product_ids = [p.id for p in products]
+            tags_stmt = (
+                select(ProductTagRelation, ProductTag)
+                .join(ProductTag, ProductTag.id == ProductTagRelation.tag_id)
+                .where(
+                    ProductTagRelation.product_id.in_(product_ids),
+                    ProductTagRelation.deleted == False,
+                    ProductTag.deleted == False,
+                )
+                .order_by(ProductTag.sort_order.asc(), ProductTag.name.asc())
+            )
+            tags_res = await db.execute(tags_stmt)
+            for rel, tag in tags_res.all():
+                tags_by_product.setdefault(rel.product_id, []).append({
+                    "id": str(tag.id),
+                    "name": tag.name,
+                    "slug": tag.slug,
+                    "sort_order": tag.sort_order,
+                })
+
             items_stmt = (
                 select(PriceProductSettingItem)
                 .options(selectinload(PriceProductSettingItem.setting).selectinload(PriceProductSetting.volume_tiers))
@@ -639,7 +705,9 @@ class ProductService:
                 sum(r["rating"] for r in reviews if r.get("rating")) / len(reviews) if reviews else 0
             )
             product_dict["avg_rating"] = round(avg_rating, 2)
-            product_dict["total_reviews"] = len(reviews)
+            prod_tags = tags_by_product.get(product.id, [])
+            product_dict["tags"] = prod_tags
+            product_dict["tag_ids"] = [t["id"] for t in prod_tags]
             _build_product_groups(product_dict)
             product_dicts.append(product_dict)
 
@@ -712,6 +780,30 @@ class ProductService:
         )
         product_dict["avg_rating"] = round(avg_rating, 2)
         product_dict["total_reviews"] = len(reviews)
+
+        tags_stmt = (
+            select(ProductTag)
+            .join(ProductTagRelation, ProductTagRelation.tag_id == ProductTag.id)
+            .where(
+                ProductTagRelation.product_id == product_id,
+                ProductTagRelation.deleted == False,
+                ProductTag.deleted == False,
+            )
+            .order_by(ProductTag.sort_order.asc(), ProductTag.name.asc())
+        )
+        tags_res = await db.execute(tags_stmt)
+        prod_tags = [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "slug": t.slug,
+                "sort_order": t.sort_order,
+            }
+            for t in tags_res.scalars().all()
+        ]
+        product_dict["tags"] = prod_tags
+        product_dict["tag_ids"] = [t["id"] for t in prod_tags]
+
         _build_product_groups(product_dict)
         return product_dict
 
