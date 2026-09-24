@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from ...infrastructure.logging import get_logger
 from ..add_to_cart.models import AddToCartItem
 from ..common.exceptions import ResourceNotFoundError
+from ..common.utils import get_media_url
 from ..customer.models import Customer
 from ..product.models import Product, ProductVariant
 from .crud import crud_orders
@@ -692,6 +693,11 @@ class OrderService:
             data["tracking_number"] = tracking_info.get("tracking_number")
             data["waybill_id"] = tracking_info.get("waybill_id")
             data["courier_code"] = tracking_info.get("courier_code")
+            data["courier_name"] = tracking_info.get("courier_name")
+            data["courier"] = tracking_info.get("courier")
+            data["voucher"] = tracking_info.get("voucher")
+            data["voucher_code"] = tracking_info.get("voucher_code")
+            data["voucher_nominal"] = tracking_info.get("voucher_nominal")
             data["tracking_logs"] = tracking_info.get("events")
             data["tracking_payload"] = tracking_info.get("latest_payload")
             data["estimated_delivery_at"] = tracking_info.get("estimated_delivery_at")
@@ -754,13 +760,16 @@ class OrderService:
             eta_notes: str | None = None
             eta_label: str | None = None
 
+            courier_id: UUID | None = None
+            courier_type: str | None = None
+
             if target_order_id:
                 deliv_res = await db.execute(
                     text("""
                         SELECT d.id, d.tracking_number, d.courier_id, d.status,
                                d.estimated_delivery_at, d.estimated_delivery_min, d.estimated_delivery_max,
                                d.estimated_delivery_duration, d.eta_source, d.eta_notes,
-                               c.code, c.name
+                               c.code, c.name, c.courier_type
                         FROM deliveries d
                         LEFT JOIN couriers c ON c.id = d.courier_id
                         WHERE d.order_id = :target_oid
@@ -771,6 +780,7 @@ class OrderService:
                 deliv_row = deliv_res.fetchone()
                 if deliv_row:
                     tracking_number = deliv_row[1]
+                    courier_id = deliv_row[2]
                     estimated_delivery_at = deliv_row[4]
                     estimated_delivery_min = deliv_row[5]
                     estimated_delivery_max = deliv_row[6]
@@ -779,6 +789,7 @@ class OrderService:
                     eta_notes = deliv_row[9]
                     courier_code = deliv_row[10]
                     courier_name = deliv_row[11]
+                    courier_type = deliv_row[12]
 
                     min_d = estimated_delivery_min or estimated_delivery_at
                     max_d = estimated_delivery_max or estimated_delivery_at
@@ -1039,6 +1050,216 @@ class OrderService:
             latest_event = events[0] if events else None
             current_status = latest_event["status"] if latest_event else (status_label or "Menunggu Pengiriman")
 
+            # Fetch item detailing down to variants and products
+            items_list = []
+            if target_order_id:
+                try:
+                    target_oid = _safe_uuid(target_order_id) or target_order_id
+                    stmt = (
+                        select(OrderItem)
+                        .options(
+                            selectinload(OrderItem.product),
+                            selectinload(OrderItem.variant),
+                        )
+                        .where(OrderItem.order_id == target_oid)
+                    )
+                    items_res = await db.execute(stmt)
+                    for item in items_res.scalars().all():
+                        prod = item.product
+                        var = item.variant
+                        prod_name = (
+                            getattr(prod, "name", None)
+                            or (item.name if item.name else "Produk")
+                        )
+                        var_name = (
+                            getattr(var, "variant_name", None)
+                            or getattr(var, "name", None)
+                            or (item.meta.get("variant_name") if isinstance(item.meta, dict) else None)
+                            or (item.meta.get("variation_name") if isinstance(item.meta, dict) else None)
+                        )
+                        item_sku = (
+                            getattr(var, "sku", None)
+                            or getattr(prod, "code", None)
+                            or (item.meta.get("sku") if isinstance(item.meta, dict) else None)
+                        )
+                        thumb = get_media_url(getattr(prod, "thumbnail", None) or getattr(prod, "thumbnail_url", None))
+                        raw_unit_price = float(item.unit_price or 0.0)
+                        raw_total = float(item.total or 0.0)
+                        qty = int(item.quantity or 1)
+                        final_p = raw_unit_price if raw_unit_price > 0 else (round(raw_total / qty, 2) if qty > 0 else 0.0)
+
+                        sell_p = 0.0
+                        if var and getattr(var, "sell_price", None) and float(var.sell_price) > 0:
+                            sell_p = float(var.sell_price)
+                        elif isinstance(item.meta, dict) and item.meta.get("sell_price"):
+                            sell_p = float(item.meta["sell_price"])
+                        else:
+                            sell_p = final_p
+
+                        base_p = 0.0
+                        if var and getattr(var, "base_price", None) and float(var.base_price) > 0:
+                            base_p = float(var.base_price)
+                        elif isinstance(item.meta, dict) and item.meta.get("base_price"):
+                            base_p = float(item.meta["base_price"])
+                        else:
+                            base_p = sell_p
+
+                        adj_type = None
+                        adj_val = 0.0
+                        adj_amt = 0.0
+
+                        if item.discount_percent and float(item.discount_percent) > 0:
+                            adj_type = "percentage"
+                            adj_val = float(item.discount_percent)
+                            adj_amt = float(item.discount_nominal or (sell_p * adj_val / 100))
+                        elif item.discount_nominal and float(item.discount_nominal) > 0:
+                            adj_type = "nominal"
+                            adj_val = float(item.discount_nominal)
+                            adj_amt = float(item.discount_nominal)
+                        elif sell_p > final_p and final_p > 0:
+                            adj_type = "nominal"
+                            adj_amt = round(sell_p - final_p, 2)
+                            adj_val = adj_amt
+
+                        disc_pct = 0.0
+                        if adj_type == "percentage":
+                            disc_pct = adj_val
+                        elif sell_p > 0 and adj_amt > 0:
+                            disc_pct = round((adj_amt / sell_p) * 100, 1)
+
+                        has_adj = bool(adj_amt > 0 or sell_p > final_p or base_p > sell_p)
+
+                        items_list.append({
+                            "id": str(item.id),
+                            "product_id": str(item.product_id),
+                            "product_name": prod_name,
+                            "product_variant_id": str(item.product_variant_id) if item.product_variant_id else None,
+                            "variant_name": var_name,
+                            "sku": item_sku,
+                            "quantity": item.quantity,
+                            "base_price": round(base_p, 2),
+                            "original_price": round(base_p, 2),
+                            "sell_price": round(sell_p, 2),
+                            "adjustment_type": adj_type,
+                            "adjustment_value": round(adj_val, 2),
+                            "adjustment_amount": round(adj_amt, 2),
+                            "final_price": round(final_p, 2),
+                            "unit_price": round(final_p, 2),
+                            "discount_nominal": round(adj_amt, 2),
+                            "discount_percent": round(disc_pct, 1),
+                            "has_adjustment": has_adj,
+                            "total": float(item.total or (final_p * item.quantity)),
+                            "thumbnail": thumb,
+                            "item_notes": item.item_notes,
+                            "meta": item.meta,
+                            "product": {
+                                "id": str(prod.id),
+                                "name": prod.name,
+                                "slug": getattr(prod, "slug", None),
+                                "code": getattr(prod, "code", None),
+                                "thumbnail": thumb,
+                            } if prod else None,
+                            "variant": {
+                                "id": str(var.id),
+                                "variant_name": getattr(var, "variant_name", None),
+                                "sku": getattr(var, "sku", None),
+                                "base_price": round(base_p, 2),
+                                "original_price": round(base_p, 2),
+                                "sell_price": round(sell_p, 2),
+                                "adjustment_type": adj_type,
+                                "adjustment_value": round(adj_val, 2),
+                                "adjustment_amount": round(adj_amt, 2),
+                                "final_price": round(final_p, 2),
+                                "has_adjustment": has_adj,
+                            } if var else None,
+                        })
+                except Exception as e:
+                    logger.warning(f"Error fetching items for order tracking {target_order_id}: {e}")
+
+            # Resolve courier detail
+            courier_info = None
+            final_courier_id = courier_id or (order.courier_id if order else None)
+            final_courier_code = courier_code
+            final_courier_name = courier_name
+            final_courier_type = courier_type
+            courier_service = None
+
+            if order and isinstance(order.meta, dict):
+                courier_service = (
+                    order.meta.get("courier_service")
+                    or order.meta.get("shipping_service")
+                    or (order.meta.get("biteship_payload") or {}).get("courier_type")
+                    or (order.meta.get("biteship_shipment") or {}).get("courier", {}).get("type")
+                )
+
+            if final_courier_id and (not final_courier_code or not final_courier_name or not final_courier_type):
+                try:
+                    c_stmt = text("SELECT id, code, name, courier_type FROM couriers WHERE id = :cid LIMIT 1")
+                    c_res = await db.execute(c_stmt, {"cid": str(final_courier_id)})
+                    c_row = c_res.fetchone()
+                    if c_row:
+                        final_courier_code = final_courier_code or c_row[1]
+                        final_courier_name = final_courier_name or c_row[2]
+                        final_courier_type = final_courier_type or c_row[3]
+                except Exception as e:
+                    logger.warning(f"Error fetching courier for order tracking {target_order_id}: {e}")
+
+            if final_courier_id or final_courier_code or final_courier_name:
+                courier_info = {
+                    "id": str(final_courier_id) if final_courier_id else None,
+                    "code": final_courier_code,
+                    "name": final_courier_name or (final_courier_code.upper() if final_courier_code else "Kurir"),
+                    "courier_type": final_courier_type or "expedisi",
+                    "service": courier_service,
+                }
+
+            # Resolve voucher detail if present
+            voucher_info = None
+            if order:
+                target_vid = order.voucher_id
+                v_nominal = float(order.voucher_nominal or 0.0)
+                if target_vid:
+                    try:
+                        v_stmt = text("""
+                            SELECT id, code, title, description, type, value, min_purchase, max_discount
+                            FROM vouchers
+                            WHERE id = :vid
+                            LIMIT 1
+                        """)
+                        v_res = await db.execute(v_stmt, {"vid": str(target_vid)})
+                        v_row = v_res.fetchone()
+                        if v_row:
+                            voucher_info = {
+                                "id": str(v_row[0]),
+                                "code": v_row[1],
+                                "title": v_row[2],
+                                "description": v_row[3],
+                                "type": v_row[4],
+                                "value": float(v_row[5] or 0.0),
+                                "nominal": v_nominal if v_nominal > 0 else float(v_row[5] or 0.0),
+                                "min_purchase": float(v_row[6] or 0.0) if v_row[6] is not None else None,
+                                "max_discount": float(v_row[7] or 0.0) if v_row[7] is not None else None,
+                            }
+                    except Exception as e:
+                        logger.warning(f"Error fetching voucher for order tracking {target_order_id}: {e}")
+
+                if not voucher_info and (v_nominal > 0 or (isinstance(order.meta, dict) and (order.meta.get("voucher_code") or order.meta.get("voucher")))):
+                    meta_v = (order.meta or {}).get("voucher") if isinstance(order.meta, dict) else {}
+                    v_code = (order.meta or {}).get("voucher_code") or (meta_v.get("code") if isinstance(meta_v, dict) else None)
+                    v_title = (order.meta or {}).get("voucher_title") or (meta_v.get("title") if isinstance(meta_v, dict) else None) or "Voucher Diskon"
+                    v_type = (order.meta or {}).get("voucher_type") or (meta_v.get("type") if isinstance(meta_v, dict) else None)
+                    voucher_info = {
+                        "id": str(target_vid) if target_vid else None,
+                        "code": v_code,
+                        "title": v_title,
+                        "description": None,
+                        "type": v_type,
+                        "value": v_nominal,
+                        "nominal": v_nominal,
+                        "min_purchase": None,
+                        "max_discount": None,
+                    }
+
             return {
                 "order_id": target_order_id,
                 "order_number": order_number,
@@ -1049,8 +1270,14 @@ class OrderService:
                 "current_status_icon": latest_event.get("icon") if latest_event else "info",
                 "tracking_number": tracking_number or waybill_id,
                 "waybill_id": waybill_id or tracking_number,
-                "courier_code": courier_code,
-                "courier_name": c_display_name,
+                "courier_code": final_courier_code or courier_code,
+                "courier_name": final_courier_name or c_display_name,
+                "courier": courier_info,
+                "voucher": voucher_info,
+                "voucher_code": voucher_info["code"] if voucher_info else None,
+                "voucher_nominal": voucher_info["nominal"] if voucher_info else 0.0,
+                "shipping_cost": float(getattr(order, "shipping_cost", 0.0) or 0.0) if order else None,
+                "shipping_cost_subsidy": float(getattr(order, "shipping_cost_subsidy", 0.0) or 0.0) if order else 0.0,
                 "estimated_delivery_at": estimated_delivery_at,
                 "estimated_delivery_min": estimated_delivery_min,
                 "estimated_delivery_max": estimated_delivery_max,
@@ -1058,6 +1285,7 @@ class OrderService:
                 "eta_source": eta_source,
                 "eta_notes": eta_notes,
                 "eta_label": eta_label,
+                "items": items_list,
                 "events": events,
                 "latest_payload": None,
                 "payload": None,
@@ -1272,4 +1500,77 @@ class OrderService:
         if not order:
             raise ResourceNotFoundError(f"Order with ID {order_id} not found")
         await crud_orders.delete(db=db, id=order_id)
+
+    async def cancel_order(
+        self, db: AsyncSession, identifier: UUID | str, user: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Cancel an unpaid order so the customer can place a new order."""
+        import datetime
+        from ...infrastructure.auth.http_exceptions import HTTPException
+
+        order = None
+        # Try as UUID
+        try:
+            order_uuid = UUID(str(identifier))
+            stmt = select(Order).where(Order.id == order_uuid, Order.deleted == False)
+            res = await db.execute(stmt)
+            order = res.scalar_one_or_none()
+        except (ValueError, TypeError):
+            pass
+
+        if not order:
+            stmt = select(Order).where(Order.order_number == str(identifier), Order.deleted == False)
+            res = await db.execute(stmt)
+            order = res.scalar_one_or_none()
+
+        if not order:
+            raise ResourceNotFoundError(f"Pesanan dengan identitas '{identifier}' tidak ditemukan.")
+
+        # Check if already cancelled
+        if order.status == Order.STATUS_CANCELLED:
+            return {
+                "success": True,
+                "message": "Pesanan ini sudah dibatalkan sebelumnya.",
+                "order_id": str(order.id),
+                "order_number": order.order_number,
+                "status": order.status,
+            }
+
+        # Check payment status: only allow cancelling unpaid orders
+        if order.payment_status not in (None, Order.PAYMENT_UNPAID) and order.status > Order.STATUS_PENDING_APPROVAL:
+            raise HTTPException(
+                status_code=400,
+                detail="Pesanan yang sudah dibayar atau sedang dikirim tidak dapat dibatalkan secara otomatis.",
+            )
+
+        # Cancel order
+        order.status = Order.STATUS_CANCELLED
+        order_meta = dict(order.meta or {})
+        order_meta["cancelled_at"] = datetime.datetime.now().isoformat()
+        order_meta["cancellation_reason"] = "Customer cancelled unpaid order"
+        order.meta = order_meta
+
+        # If voucher was used, restore voucher usage if applicable
+        if order.voucher_id:
+            try:
+                from ..voucher.models import Voucher
+                v_res = await db.execute(select(Voucher).where(Voucher.id == order.voucher_id))
+                voucher = v_res.scalar_one_or_none()
+                if voucher and hasattr(voucher, "used_count") and (voucher.used_count or 0) > 0:
+                    voucher.used_count -= 1
+                    db.add(voucher)
+            except Exception as e:
+                logger.warning(f"Failed to restore voucher usage on order cancel: {e}")
+
+        db.add(order)
+        await db.commit()
+
+        return {
+            "success": True,
+            "message": "Pesanan berhasil dibatalkan. Anda sekarang dapat melakukan pemesanan kembali.",
+            "order_id": str(order.id),
+            "order_number": order.order_number,
+            "status": order.status,
+        }
+
 

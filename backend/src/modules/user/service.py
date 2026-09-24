@@ -276,6 +276,31 @@ class UserService:
         )
         if not updated_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
+
+        # Synchronize changes with customer table if customer exists for this user
+        try:
+            from sqlalchemy import or_, select
+            from ..customer.models import Customer
+            cust_stmt = select(Customer).where(
+                or_(Customer.user_id == user_id, Customer.email == existing_user.get("email")),
+                Customer.deleted == False,
+            )
+            cust_res = await db.execute(cust_stmt)
+            existing_cust = cust_res.scalar_one_or_none()
+            if existing_cust:
+                if "name" in update_data and update_data["name"]:
+                    existing_cust.name = update_data["name"]
+                if "email" in update_data and update_data["email"]:
+                    existing_cust.email = update_data["email"]
+                if "phone" in update_data and update_data["phone"]:
+                    existing_cust.phone = update_data["phone"]
+                if not existing_cust.user_id:
+                    existing_cust.user_id = user_id
+                db.add(existing_cust)
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to sync customer profile for user {user_id}: {e}")
+
         return updated_user
 
     async def check_update_permission(self, requester_user: dict[str, Any], target_username: str) -> bool:

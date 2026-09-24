@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import Any
 from uuid import UUID
@@ -7,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import ResourceNotFoundError
+from ..common.utils import get_media_url
 from ..region.models import City, Province, SubDistrict
 from .crud import crud_customers
 from .models import Address, Customer
-from .schemas import AddressCreate, CustomerCreate, CustomerRead, CustomerUpdate
+from .schemas import AddressCreate, CustomerCreate, CustomerProfileUpdate, CustomerRead, CustomerUpdate
 
 logger = get_logger()
 
@@ -138,6 +140,27 @@ class CustomerService:
 
         user_id = customer.get("user_id")
         customer["addresses"] = await _fetch_and_enrich_addresses_for_customer(db, customer_id, user_id)
+
+        avatar_url = None
+        if user_id:
+            from ..user.models import User
+            u_res = await db.execute(select(User).where(User.id == user_id))
+            user_obj = u_res.scalar_one_or_none()
+            if user_obj:
+                raw_avatar = user_obj.avatar or user_obj.photo_url
+                if raw_avatar:
+                    avatar_url = get_media_url(raw_avatar)
+        if not avatar_url and customer.get("meta"):
+            try:
+                import json
+                meta_dict = json.loads(customer["meta"]) if isinstance(customer["meta"], str) else customer["meta"]
+                if isinstance(meta_dict, dict) and meta_dict.get("avatar"):
+                    avatar_url = get_media_url(meta_dict["avatar"])
+            except Exception:
+                pass
+
+        customer["avatar"] = avatar_url
+        customer["photo_url"] = avatar_url
         return customer
 
     async def create(self, db: AsyncSession, customer_in: CustomerCreate) -> dict[str, Any]:
@@ -316,6 +339,136 @@ class CustomerService:
 
         await db.commit()
         return await self.get_by_id(db, customer_id)
+
+    async def get_or_create_for_user(
+        self, db: AsyncSession, user_id: UUID, user_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Fetch or automatically create customer record for the authenticated user."""
+        email = user_data.get("email")
+        conditions = [Customer.user_id == user_id]
+        if email:
+            conditions.append(Customer.email == email)
+
+        stmt = select(Customer).where(or_(*conditions), Customer.deleted == False)
+        res = await db.execute(stmt)
+        customer = res.scalar_one_or_none()
+
+        if not customer:
+            customer = Customer(
+                name=user_data.get("name") or (email.split("@")[0] if email else "Customer"),
+                email=email,
+                phone=user_data.get("phone"),
+                user_id=user_id,
+            )
+            db.add(customer)
+            await db.commit()
+            await db.refresh(customer)
+        elif not customer.user_id:
+            customer.user_id = user_id
+            db.add(customer)
+            await db.commit()
+
+        return await self.get_by_id(db, customer.id)
+
+    async def update_profile_for_user(
+        self, db: AsyncSession, user_id: UUID, customer_in: CustomerProfileUpdate | CustomerUpdate, user_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update customer profile (identity, avatar, password) for authenticated user without modifying addresses."""
+        from ...infrastructure.auth.http_exceptions import HTTPException
+        from crudauth.utils import get_password_hash, verify_password
+        from ..user.models import User
+
+        # Fetch User entity
+        u_res = await db.execute(select(User).where(User.id == user_id))
+        user_obj = u_res.scalar_one_or_none()
+        if not user_obj:
+            raise ResourceNotFoundError("User not found")
+
+        email = user_data.get("email") or user_obj.email
+        conditions = [Customer.user_id == user_id]
+        if email:
+            conditions.append(Customer.email == email)
+
+        stmt = select(Customer).where(or_(*conditions), Customer.deleted == False)
+        res = await db.execute(stmt)
+        customer = res.scalar_one_or_none()
+
+        if not customer:
+            customer = Customer(
+                name=customer_in.name or user_obj.name or (email.split("@")[0] if email else "Customer"),
+                email=customer_in.email or email,
+                phone=customer_in.phone or user_obj.phone,
+                user_id=user_id,
+            )
+            db.add(customer)
+            await db.commit()
+            await db.refresh(customer)
+        elif not customer.user_id:
+            customer.user_id = user_id
+            db.add(customer)
+            await db.commit()
+
+        # Handle Password Change / Reset if requested
+        new_pw = getattr(customer_in, "new_password", None) or getattr(customer_in, "password", None)
+        if new_pw and str(new_pw).strip():
+            new_pw = str(new_pw).strip()
+            confirm_pw = getattr(customer_in, "confirm_password", None) or getattr(customer_in, "password_confirmation", None)
+            if confirm_pw and str(confirm_pw).strip() != new_pw:
+                raise HTTPException(status_code=400, detail="Konfirmasi password baru tidak cocok.")
+
+            # Validate strong password: min 8, lower, upper, digit, symbol
+            if len(new_pw) < 8:
+                raise HTTPException(status_code=400, detail="Password minimal harus 8 karakter.")
+            if not re.search(r"[a-z]", new_pw):
+                raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 huruf kecil.")
+            if not re.search(r"[A-Z]", new_pw):
+                raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 huruf besar.")
+            if not re.search(r"[0-9]", new_pw):
+                raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 angka.")
+            if not re.search(r"[!@#$%^&*(),.?\":{}|<>\-+=_\[\]\\\/~`]", new_pw):
+                raise HTTPException(status_code=400, detail="Password harus mengandung setidaknya 1 simbol karakter khusus (contoh: @, #, $, !).")
+
+            # If user already has a password, verify current password
+            if user_obj.password and user_obj.password.strip():
+                curr_pw = getattr(customer_in, "current_password", None) or getattr(customer_in, "old_password", None)
+                if not curr_pw:
+                    raise HTTPException(status_code=400, detail="Password saat ini diperlukan untuk mengubah password.")
+                if not verify_password(curr_pw, user_obj.password):
+                    raise HTTPException(status_code=400, detail="Password saat ini tidak sesuai.")
+
+            user_obj.password = get_password_hash(new_pw)
+
+        # Handle Avatar
+        avatar_val = getattr(customer_in, "avatar", None) or getattr(customer_in, "photo_url", None)
+        if avatar_val is not None:
+            user_obj.avatar = avatar_val
+            user_obj.photo_url = avatar_val
+            import json
+            meta_dict = {}
+            if customer.meta:
+                try:
+                    meta_dict = json.loads(customer.meta) if isinstance(customer.meta, str) else dict(customer.meta)
+                except Exception:
+                    meta_dict = {}
+            meta_dict["avatar"] = avatar_val
+            customer.meta = json.dumps(meta_dict)
+
+        # Handle Identity fields (Strictly identity only, NO address modifications)
+        if customer_in.name:
+            user_obj.name = customer_in.name
+            customer.name = customer_in.name
+        if customer_in.phone:
+            user_obj.phone = customer_in.phone
+            customer.phone = customer_in.phone
+        if getattr(customer_in, "email", None):
+            user_obj.email = customer_in.email
+            customer.email = customer_in.email
+
+        db.add(user_obj)
+        db.add(customer)
+        await db.commit()
+
+        return await self.get_by_id(db, customer.id)
 
 
 customer_service = CustomerService()

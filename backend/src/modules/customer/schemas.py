@@ -140,7 +140,25 @@ class CustomerUpdate(BaseModel):
     }
 
 
+class CustomerProfileUpdate(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    avatar: str | None = None
+    photo_url: str | None = None
+    meta: str | None = None
+    current_password: str | None = Field(None, description="Password saat ini jika ingin mengubah password")
+    old_password: str | None = Field(None, description="Alias untuk password saat ini")
+    password: str | None = Field(None, description="Password baru (minimal 8 karakter)")
+    new_password: str | None = Field(None, description="Alias untuk password baru")
+    confirm_password: str | None = Field(None, description="Konfirmasi password baru")
+    password_confirmation: str | None = Field(None, description="Alias untuk konfirmasi password baru")
+
+
 class CustomerRead(CustomerBase, TimestampSchema):
     id: uuid.UUID
     user_id: uuid.UUID | None = None
+    avatar: str | None = None
+    photo_url: str | None = None
     addresses: list[AddressRead] = []
+

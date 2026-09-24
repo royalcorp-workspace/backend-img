@@ -1,15 +1,16 @@
+import base64
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.http_exceptions import HTTPException
-from ...infrastructure.dependencies import AsyncSessionDep
+from ...infrastructure.dependencies import AsyncSessionDep, CurrentUserDep
 from ...modules.rbac.dependencies import require_permission
 from ..common.utils.error_handler import handle_exception
 from .dependencies import CustomerServiceDep
-from .schemas import AddressCreate, CustomerCreate, CustomerRead, CustomerUpdate
+from .schemas import AddressCreate, CustomerCreate, CustomerProfileUpdate, CustomerRead, CustomerUpdate
 
 router = APIRouter(tags=["Customers"])
 
@@ -135,6 +136,107 @@ async def create_customer(
 ) -> dict[str, Any]:
     try:
         return await customer_service.create(db, customer_in)
+    except Exception as e:
+        http_exception = handle_exception(e)
+        if http_exception:
+            raise http_exception
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
+@router.get(
+    "/me",
+    response_model=CustomerRead,
+    summary="Get Current Customer Profile",
+    description="Get the customer profile for the currently authenticated user.",
+)
+@router.get(
+    "/profile",
+    response_model=CustomerRead,
+    summary="Get Current Customer Profile (Alias)",
+    description="Get the customer profile for the currently authenticated user.",
+    include_in_schema=False,
+)
+async def get_my_customer_profile(
+    db: AsyncSessionDep,
+    current_user: CurrentUserDep,
+    customer_service: CustomerServiceDep,
+) -> dict[str, Any]:
+    try:
+        return await customer_service.get_or_create_for_user(db, current_user["id"], current_user)
+    except Exception as e:
+        http_exception = handle_exception(e)
+        if http_exception:
+            raise http_exception
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
+@router.put(
+    "/me",
+    response_model=CustomerRead,
+    summary="Update Current Customer Profile",
+    description="Update the customer profile for the currently authenticated user and sync with user record.",
+)
+@router.put(
+    "/profile",
+    response_model=CustomerRead,
+    summary="Update Current Customer Profile (Alias)",
+    description="Update the customer profile for the currently authenticated user.",
+    include_in_schema=False,
+)
+async def update_my_customer_profile(
+    customer_in: CustomerProfileUpdate | CustomerUpdate,
+    db: AsyncSessionDep,
+    current_user: CurrentUserDep,
+    customer_service: CustomerServiceDep,
+) -> dict[str, Any]:
+    try:
+        return await customer_service.update_profile_for_user(db, current_user["id"], customer_in, current_user)
+    except Exception as e:
+        http_exception = handle_exception(e)
+        if http_exception:
+            raise http_exception
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
+@router.post(
+    "/me/avatar",
+    response_model=dict[str, Any],
+    summary="Upload Current Customer Avatar",
+    description="Upload an avatar image for the currently authenticated user.",
+)
+@router.post(
+    "/profile/avatar",
+    response_model=dict[str, Any],
+    summary="Upload Current Customer Avatar (Alias)",
+    include_in_schema=False,
+)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    db: AsyncSessionDep = None,
+    current_user: CurrentUserDep = None,
+    customer_service: CustomerServiceDep = None,
+) -> dict[str, Any]:
+    try:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File harus berupa gambar (JPG, PNG, WebP, GIF).")
+
+        content = await file.read()
+        if len(content) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Ukuran gambar maksimal 5MB.")
+
+        # Convert to base64 data URI for instant portability and persistence
+        b64_str = base64.b64encode(content).decode("utf-8")
+        data_uri = f"data:{file.content_type};base64,{b64_str}"
+
+        profile_update = CustomerProfileUpdate(avatar=data_uri, photo_url=data_uri)
+        updated = await customer_service.update_profile_for_user(db, current_user["id"], profile_update, current_user)
+
+        return {
+            "success": True,
+            "message": "Avatar berhasil diperbarui",
+            "avatar_url": data_uri,
+            "customer": updated,
+        }
     except Exception as e:
         http_exception = handle_exception(e)
         if http_exception:
