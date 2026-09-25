@@ -97,17 +97,32 @@ async def get_homepage_sections(db: AsyncSessionDep, service: ContentServiceDep)
 
 @router.get('/events/active', summary='Get Active Events', description='Get active events with their popups', tags=['Content: App Layout'])
 async def get_active_events(db: AsyncSessionDep):
-    from datetime import datetime
-    now = datetime.now()
+    from datetime import datetime, timezone, timedelta
+
+    wib_tz = timezone(timedelta(hours=7), name="WIB")
+    now_wib = datetime.now(wib_tz)
+    now_naive = now_wib.replace(tzinfo=None)
+
+    def to_wib_datetime_str(dt: datetime | None) -> str | None:
+        if not dt:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=wib_tz)
+        else:
+            dt = dt.astimezone(wib_tz)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
     stmt = (
         select(Event)
         .options(selectinload(Event.popups))
         .where(
             Event.deleted == False,
             Event.is_active == True,
-            or_(Event.start_date.is_(None), Event.start_date <= now),
-            or_(Event.end_date.is_(None), Event.end_date >= now),
+            or_(Event.start_date.is_(None), Event.start_date <= now_naive),
+            or_(Event.end_date.is_(None), Event.end_date >= now_naive),
         )
+        .order_by(Event.created_at.desc())
+        .limit(1)
     )
     result = await db.execute(stmt)
     events = result.scalars().unique().all()
@@ -124,25 +139,33 @@ async def get_active_events(db: AsyncSessionDep):
                     "link_url": pop.link_url,
                     "button_text": pop.button_text,
                     "is_active": pop.is_active,
-                    "created_at": pop.created_at,
-                    "updated_at": pop.updated_at,
+                    "created_at": to_wib_datetime_str(pop.created_at),
+                    "updated_at": to_wib_datetime_str(pop.updated_at),
                 })
         events_data.append({
             "id": ev.id,
             "title": ev.title,
             "slug": ev.slug,
             "description": ev.description,
-            "start_date": ev.start_date,
-            "end_date": ev.end_date,
+            "start_date": to_wib_datetime_str(ev.start_date),
+            "end_date": to_wib_datetime_str(ev.end_date),
+            "timezone": "Asia/Jakarta",
+            "timezone_name": "WIB",
             "is_active": ev.is_active,
             "event_type": ev.event_type,
             "banner_image": get_media_url(ev.banner_image) if ev.banner_image else None,
             "banner_image_url": get_media_url(ev.banner_image) if ev.banner_image else None,
-            "created_at": ev.created_at,
-            "updated_at": ev.updated_at,
+            "created_at": to_wib_datetime_str(ev.created_at),
+            "updated_at": to_wib_datetime_str(ev.updated_at),
             "popups": popups_data,
         })
-    return {'success': True, 'data': events_data}
+    return {
+        'success': True,
+        'server_time': now_wib.strftime("%Y-%m-%d %H:%M:%S"),
+        'timezone': 'Asia/Jakarta',
+        'timezone_name': 'WIB',
+        'data': events_data,
+    }
 
 @router.get('/notifications', summary='Get Broadcast Notifications', description='Get latest notifications', tags=['Content: App Layout'])
 async def get_notifications(db: AsyncSessionDep):
