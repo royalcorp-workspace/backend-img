@@ -12,8 +12,8 @@ import uuid as uuid_pkg
 import secrets
 from sqlalchemy import select, update
 import re
-from ...modules.user.models import EmailVerification
-from ...modules.customer.models import Customer, Address
+from ...modules.user.models import EmailVerification, User
+from ...modules.customer.models import Customer
 from crudauth.utils import get_password_hash
 
 from pydantic import BaseModel, Field
@@ -817,23 +817,14 @@ async def check_auth(
         return {"authenticated": False, "message": "Error checking authentication status"}
 
 
-class AddressCreate(BaseModel):
-    label: str = "Rumah"
-    recipient_name: str
-    phone: str
-    address: str
-    city_id: uuid_pkg.UUID
-    sub_district_id: uuid_pkg.UUID | None = None
-    postal_code: str | None = None
-    is_primary: bool = True
-
 class RegisterRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+    password_confirmation: str | None = None
     phone: str | None = None
-    # Customer / Address data
-    address_detail: AddressCreate | None = None
+
+    model_config = {"extra": "ignore"}
 
 
 @router.post("/register", summary="User Registration")
@@ -842,6 +833,10 @@ async def register_user(
     data: RegisterRequest,
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
+    # Check password confirmation if provided
+    if data.password_confirmation and data.password != data.password_confirmation:
+        raise HTTPException(status_code=400, detail="Konfirmasi password tidak cocok")
+
     # Check if email exists
     existing = await crud_users.get(db=db, email=data.email, deleted=False)
     if existing:
@@ -850,8 +845,6 @@ async def register_user(
     hashed_password = get_password_hash(data.password)
     
     # Create User directly with SQLAlchemy
-    from ...modules.user.models import User
-    
     new_user = User(
         name=data.name,
         email=data.email,
@@ -876,23 +869,6 @@ async def register_user(
     db.add(new_customer)
     await db.flush()
     
-    # Create Address Record if provided
-    if data.address_detail:
-        new_address = Address(
-            user_id=created_user.id,
-            customer_id=new_customer.id,
-            city_id=data.address_detail.city_id,
-            label=data.address_detail.label,
-            recipient_name=data.address_detail.recipient_name,
-            phone=data.address_detail.phone,
-            address=data.address_detail.address,
-            sub_district_id=data.address_detail.sub_district_id,
-            postal_code=data.address_detail.postal_code,
-            is_primary=data.address_detail.is_primary
-        )
-        db.add(new_address)
-        await db.flush()
-    
     # Create EmailVerification Token
     token = secrets.token_urlsafe(32)
     ev = EmailVerification(
@@ -904,23 +880,30 @@ async def register_user(
     db.add(ev)
     await db.commit()
     
-    # For now, return the token so frontend can test without sending real email
+    base_url = str(request.base_url).rstrip("/")
+    activation_url = f"{base_url}/api/v1/auth/verify-email?token={token}"
+    
     return {
         "success": True, 
-        "message": "User registered successfully. Please verify your email.",
+        "message": "User registered successfully. Please activate your account using the activation URL.",
+        "activation_url": activation_url,
+        "url": activation_url,
+        "verify_url": activation_url,
+        "link": activation_url,
+        "activation_token": token,
         "user_id": str(created_user.id),
-        "activation_token": token
     }
 
-class VerifyEmailRequest(BaseModel):
-    token: str
 
-@router.post("/verify-email", summary="Verify User Email")
-async def verify_email(
-    data: VerifyEmailRequest,
-    db: AsyncSessionDep,
-) -> dict[str, Any]:
-    stmt = select(EmailVerification).where(EmailVerification.token == data.token)
+class VerifyEmailRequest(BaseModel):
+    token: str | None = None
+
+
+async def _process_email_verification(token: str, db: AsyncSessionDep) -> dict[str, Any]:
+    if not token:
+        raise HTTPException(status_code=400, detail="Token required")
+
+    stmt = select(EmailVerification).where(EmailVerification.token == token)
     result = await db.execute(stmt)
     ev = result.scalar_one_or_none()
     
@@ -938,11 +921,31 @@ async def verify_email(
     
     # Update User
     await db.execute(
-        update(crud_users.model)
-        .where(crud_users.model.id == ev.user_id)
+        update(User)
+        .where(User.id == ev.user_id)
         .values(email_verified=True, email_verified_at=datetime.utcnow())
     )
     
     await db.commit()
     
     return {"success": True, "message": "Email successfully verified"}
+
+
+@router.get("/verify-email", summary="Verify User Email (Activation Link)")
+async def verify_email_get(
+    db: AsyncSessionDep,
+    token: str = Query(..., description="Email activation token"),
+) -> dict[str, Any]:
+    return await _process_email_verification(token, db)
+
+
+@router.post("/verify-email", summary="Verify User Email")
+async def verify_email_post(
+    db: AsyncSessionDep,
+    data: VerifyEmailRequest | None = None,
+    token: str | None = Query(None, description="Email activation token"),
+) -> dict[str, Any]:
+    target_token = (data.token if data and data.token else None) or token
+    if not target_token:
+        raise HTTPException(status_code=400, detail="Token required")
+    return await _process_email_verification(target_token, db)
