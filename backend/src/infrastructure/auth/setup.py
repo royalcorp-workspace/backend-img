@@ -27,8 +27,8 @@ _session_redis_url = f"redis://{_redis_auth}{settings.CACHE_REDIS_HOST}:{setting
 _use_redis = settings.SESSION_BACKEND == "redis"
 
 _bearer_transport = BearerTransport(
-    access_ttl=3600,
-    refresh_ttl_days=30,
+    access_ttl=getattr(settings, "JWT_ACCESS_TTL", 3600),
+    refresh_ttl_days=getattr(settings, "JWT_REFRESH_TTL_DAYS", 30),
     refresh="body",
 )
 

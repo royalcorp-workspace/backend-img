@@ -299,30 +299,30 @@ async def firebase_login(
         logger.warning("Firebase token missing email or uid", {"claims": verified_claims})
         raise HTTPException(status_code=422, detail="Firebase token does not contain required user info")
 
-    user = await crud_users.get_multi(db=db, email=email, deleted=False)
-    matched = None
-    if user.get("data"):
-        for u in user["data"]:
-            if u.get("firebase_uid") == firebase_uid or u.get("email") == email:
-                matched = u
-                break
+    stmt = select(User).where(
+        (User.firebase_uid == firebase_uid) | (User.email == email),
+        User.deleted == False,
+    )
+    result = await db.execute(stmt)
+    existing_user = result.scalar_one_or_none()
 
-    if matched:
-        update_data: dict[str, Any] = {
-            "firebase_uid": firebase_uid,
-            "firebase_token": firebase_token,
-            "auth_provider": auth_provider,
-            "email_verified": True,
-        }
-        if display_name:
-            update_data["name"] = display_name
+    if existing_user:
+        existing_user.firebase_uid = firebase_uid
+        existing_user.firebase_token = firebase_token
+        existing_user.auth_provider = auth_provider
+        existing_user.email_verified = True
+        if display_name and not existing_user.name:
+            existing_user.name = display_name
         if photo_url:
-            update_data["photo_url"] = photo_url
-            update_data["avatar"] = photo_url
-        if is_google_login and verified_claims.get("sub"):
-            update_data["google_id"] = verified_claims.get("sub")
-        await crud_users.update(db=db, object=update_data, id=matched["id"])
-        user_id = matched["id"]
+            existing_user.photo_url = photo_url
+            if not existing_user.avatar:
+                existing_user.avatar = photo_url
+        if is_google_login:
+            existing_user.google_id = firebase_uid
+        await db.commit()
+        await db.refresh(existing_user)
+        user = existing_user
+        user_id = existing_user.id
         username = email.split("@")[0]
     else:
         new_user = User(
@@ -336,15 +336,28 @@ async def firebase_login(
             photo_url=photo_url,
             avatar=photo_url,
             email_verified=True,
-            google_id=verified_claims.get("sub") if is_google_login else None,
+            google_id=firebase_uid if is_google_login else None,
             deleted=False,
         )
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
+        user = new_user
         user_id = new_user.id
         username = email.split("@")[0]
 
+    # Ensure Customer record exists and is linked
+    stmt_cust = select(Customer).where(
+        (Customer.user_id == user_id) | (Customer.email == email),
+        Customer.deleted == False,
+    )
+    cust_res = await db.execute(stmt_cust)
+    customer_obj = cust_res.scalar_one_or_none()
+    if customer_obj:
+        if customer_obj.user_id != user_id:
+            customer_obj.user_id = user_id
+            await db.commit()
+    else:
         from ...modules.customer.schemas import CustomerCreate
         customer_in = CustomerCreate(
             name=(display_name or email.split("@")[0])[:100],
@@ -364,14 +377,10 @@ async def firebase_login(
             "firebase_uid": firebase_uid,
             "username": username,
         },
-        expiration_seconds=3600,  # Firebase login session expires in 1 hour
+        expiration_seconds=max(3600, _bearer_transport.access_ttl),
     )
     crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 
-    from sqlalchemy import select
-    from ...modules.user.models import User
-    result = await db.execute(select(User).where(User.id == user_id, User.deleted == False))
-    user = result.scalar_one_or_none()
     token_body = _bearer_transport.issue_tokens(user, response=response)
 
     customer_result = await crud_customers.get_multi(
@@ -391,11 +400,12 @@ async def firebase_login(
         "access_token": token_body["access_token"],
         "refresh_token": token_body.get("refresh_token"),
         "token_type": token_body.get("token_type", "bearer"),
+        "expires_in": _bearer_transport.access_ttl,
         "must_set_password": must_set_password,
         "user": {
             "id": user_id,
             "email": email,
-            "name": display_name or email,
+            "name": user.name or display_name or email,
             "username": username,
             "customer": customer,
             "must_set_password": must_set_password,
@@ -425,7 +435,6 @@ async def set_initial_password(
 ) -> dict[str, Any]:
     import re
     from sqlalchemy import update
-    from ...modules.user.models import User
 
     password = data.password
     if data.confirm_password and data.confirm_password != password:
@@ -803,8 +812,9 @@ async def check_auth(
             "authenticated": True,
             "user": {
                 "id": user["id"],
-                "username": user["username"],
+                "username": user.get("username") or (user.get("email", "").split("@")[0] if user.get("email") else None),
                 "email": user["email"],
+                "name": user.get("name"),
                 "oauth_provider": user.get("oauth_provider"),
             },
             "session": {
