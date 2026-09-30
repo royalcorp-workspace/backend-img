@@ -227,11 +227,13 @@ class AuthSettings(BaseSettings):
 
     SECRET_KEY: str = config("SECRET_KEY", default="insecure-secret-key-change-this")
 
-    SESSION_TIMEOUT_MINUTES: int = config("SESSION_TIMEOUT_MINUTES", default=30, cast=int)
+    SESSION_TIMEOUT_MINUTES: int = config("SESSION_TIMEOUT_MINUTES", default=60, cast=int)
     SESSION_CLEANUP_INTERVAL_MINUTES: int = config("SESSION_CLEANUP_INTERVAL_MINUTES", default=15, cast=int)
     MAX_SESSIONS_PER_USER: int = config("MAX_SESSIONS_PER_USER", default=5, cast=int)
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)
     SESSION_BACKEND: str = config("SESSION_BACKEND", default=SessionBackend.REDIS.value)
+    JWT_ACCESS_TTL: int = config("JWT_ACCESS_TTL", default=3600, cast=int)
+    JWT_REFRESH_TTL_DAYS: int = config("JWT_REFRESH_TTL_DAYS", default=30, cast=int)
 
     CSRF_ENABLED: bool = False
 
