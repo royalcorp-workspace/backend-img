@@ -1,7 +1,8 @@
+import datetime
 import uuid as uuid_pkg
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
@@ -38,7 +39,7 @@ class Order(Base, TimestampMixin):
         init=False,
     )
     customer_id: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"), nullable=False)
-    status: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[int] = mapped_column(Integer, default=STATUS_PENDING_APPROVAL)
     payment_method: Mapped[str | None] = mapped_column(String(50), default=None)
     payment_status: Mapped[int | None] = mapped_column(Integer, default=None)
     subtotal: Mapped[float | None] = mapped_column(default=0.0)
@@ -49,6 +50,9 @@ class Order(Base, TimestampMixin):
     meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     
     order_number: Mapped[str | None] = mapped_column(String(255), default=None)
+    order_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
+    jde_push_status: Mapped[int | None] = mapped_column(Integer, default=0)
+    jde_push_date: Mapped[datetime.date | None] = mapped_column(Date, default=None)
     voucher_id: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("vouchers.id"), default=None)
     transaction_fee: Mapped[float | None] = mapped_column(default=0.0)
     courier_id: Mapped[uuid_pkg.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
@@ -64,6 +68,13 @@ class Order(Base, TimestampMixin):
     customer: Mapped["Customer"] = relationship("Customer", lazy="selectin", init=False)
     items: Mapped[list["OrderItem"]] = relationship(
         "OrderItem",
+        back_populates="order",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        init=False,
+    )
+    logs: Mapped[list["OrderLog"]] = relationship(
+        "OrderLog",
         back_populates="order",
         lazy="selectin",
         cascade="all, delete-orphan",
@@ -133,3 +144,33 @@ class VoidOrder(Base, TimestampMixin):
 
 
 OrderVoid = VoidOrder
+
+
+class OrderLog(Base, TimestampMixin):
+    __tablename__ = "order_logs"
+
+    id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid_pkg.uuid4,
+        init=False,
+    )
+    order_id: Mapped[uuid_pkg.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    status_from: Mapped[str | None] = mapped_column(String(50), default=None)
+    status_to: Mapped[str | None] = mapped_column(String(50), default=None)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    creator: Mapped[str | None] = mapped_column(String(255), default=None)
+    editor: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    order: Mapped["Order"] = relationship(
+        "Order",
+        back_populates="logs",
+        lazy="selectin",
+        init=False,
+    )
+

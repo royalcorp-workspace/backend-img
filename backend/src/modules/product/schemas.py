@@ -26,9 +26,6 @@ class ProductBase(BaseModel):
     warranty_duration: str | None = None
     courier_type: str | None = "keduanya"
     courier_type_label: str | None = None
-    shipping_scheme: str | None = "dimension"
-    shipping_scheme_label: str | None = None
-    shipping_cost: float | None = 0.0
     length: str | None = None
     width: str | None = None
     height: str | None = None
@@ -96,8 +93,6 @@ class ProductUpdate(BaseModel):
     code: str | None = None
     warranty_duration: str | None = None
     courier_type: str | None = None
-    shipping_scheme: str | None = None
-    shipping_cost: float | None = None
     length: str | None = None
     width: str | None = None
     height: str | None = None
@@ -180,7 +175,6 @@ class ProductVariantBase(BaseModel):
     package_weight: float | None = None
     base_price: float | None = 0.0
     sell_price: float | None = 0.0
-    shipping_cost: float | None = 0.0
     stock_qty: int | None = 0
     attributes: dict | None = None
     size: str | None = None
