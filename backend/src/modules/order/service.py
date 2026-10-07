@@ -16,7 +16,7 @@ from ..common.utils import get_media_url
 from ..customer.models import Customer
 from ..product.models import Product, ProductVariant
 from .crud import crud_orders
-from .models import Order, OrderItem, OrderVoid, VoidOrder
+from .models import Order, OrderItem, OrderLog, OrderVoid, VoidOrder
 from .schemas import OrderCreate
 
 logger = get_logger()
@@ -227,8 +227,26 @@ def _order_to_dict(order: Order, void_data: dict[str, Any] | None = None) -> dic
         "creator": order.creator,
         "editor": order.editor,
         "deleted": order.deleted,
+        "order_date": order.order_date.isoformat() if getattr(order, "order_date", None) else (order.created_at.date().isoformat() if getattr(order, "created_at", None) else None),
+        "jde_push_status": getattr(order, "jde_push_status", 0) if getattr(order, "jde_push_status", None) is not None else 0,
+        "jde_push_date": order.jde_push_date.isoformat() if getattr(order, "jde_push_date", None) else None,
         "created_at": order.created_at,
         "updated_at": order.updated_at,
+        "logs": [
+            {
+                "id": log.id,
+                "order_id": log.order_id,
+                "action": log.action,
+                "status_from": log.status_from,
+                "status_to": log.status_to,
+                "notes": log.notes,
+                "creator": log.creator,
+                "editor": log.editor,
+                "created_at": log.created_at.isoformat() if getattr(log, "created_at", None) else None,
+                "updated_at": log.updated_at.isoformat() if getattr(log, "updated_at", None) else None,
+            }
+            for log in (getattr(order, "logs", None) or [])
+        ] if getattr(order, "logs", None) else [],
         "customer": (
             {
                 "id": order.customer.id,
@@ -1316,6 +1334,31 @@ class OrderService:
                 "payload": None,
             }
 
+    @staticmethod
+    async def generate_order_number(db: AsyncSession, target_date: datetime.date | None = None) -> str:
+        """Generate sequential order number in format: ORD.YYYYMMDD.0001 (resets daily)."""
+        date_val = target_date or datetime.date.today()
+        prefix = f"ORD.{date_val.strftime('%Y%m%d')}."
+
+        stmt = text(
+            "SELECT order_number FROM orders "
+            "WHERE LOWER(order_number) LIKE :prefix "
+            "ORDER BY LENGTH(SPLIT_PART(order_number, '.', 3)) DESC, SPLIT_PART(order_number, '.', 3) DESC "
+            "LIMIT 1"
+        )
+        result = await db.execute(stmt, {"prefix": f"{prefix.lower()}%"})
+        last_order_number = result.scalar_one_or_none()
+
+        next_seq = 1
+        if last_order_number:
+            try:
+                last_seq = int(last_order_number.split(".")[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+
+        return f"{prefix}{next_seq:04d}"
+
     async def create(self, db: AsyncSession, order_in: OrderCreate) -> Any:
         order_data = order_in.model_dump(
             exclude={"items", "cart_item_ids", "shipping_address_id", "courier_id", "shipping_cost", "voucher_id"}
@@ -1323,9 +1366,11 @@ class OrderService:
 
         # Generate Order Number
         now = datetime.datetime.now()
-        random_str = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
-        order_number = f"ORD-{now.strftime('%y%m%d')}-{random_str}"
+        order_number = await self.generate_order_number(db, now.date())
         order_data["order_number"] = order_number
+        order_data["order_date"] = now.date()
+        order_data["jde_push_status"] = 0
+        order_data["jde_push_date"] = None
 
         # Map mobile fields to db fields
         if order_in.courier_id:
@@ -1342,9 +1387,25 @@ class OrderService:
         meta["platform"] = "mobile_app"
         order_data["meta"] = meta
 
+        # Guarantee initial order status is STATUS_PENDING_APPROVAL (1) when newly created
+        if not order_data.get("status") or order_data.get("status") == 0:
+            order_data["status"] = STATUS_PENDING_APPROVAL
+
         order = Order(**order_data)
         db.add(order)
         await db.flush()
+
+        # Initial OrderLog
+        order_log = OrderLog(
+            order_id=order.id,
+            action="created",
+            status_from=None,
+            status_to=str(order.status),
+            notes="Pesanan baru dibuat via mobile app",
+            creator=order.creator or "mobile_user",
+            editor=order.editor or "mobile_user",
+        )
+        db.add(order_log)
 
         # Handle Cart Flow
         created_order_items = []
@@ -1544,11 +1605,29 @@ class OrderService:
             )
 
         # Cancel order
+        old_status = order.status
         order.status = Order.STATUS_CANCELLED
         order_meta = dict(order.meta or {})
         order_meta["cancelled_at"] = datetime.datetime.now().isoformat()
         order_meta["cancellation_reason"] = "Customer cancelled unpaid order"
         order.meta = order_meta
+
+        # Add cancellation log in order_logs
+        canceller_username = (
+            user.get("username") or user.get("name") or user.get("email") or "customer"
+            if isinstance(user, dict)
+            else "customer"
+        )
+        cancel_log = OrderLog(
+            order_id=order.id,
+            action="cancelled",
+            status_from=str(old_status),
+            status_to=str(Order.STATUS_CANCELLED),
+            notes="Pesanan dibatalkan oleh customer (unpaid order)",
+            creator=canceller_username,
+            editor=canceller_username,
+        )
+        db.add(cancel_log)
 
         # If voucher was used, restore voucher usage if applicable
         if order.voucher_id:

@@ -69,7 +69,7 @@ class VoidOrderRead(BaseModel):
 
 class OrderBase(BaseModel):
     customer_id: UUID
-    status: int = 0
+    status: int = 1
     payment_method: str | None = None
     payment_status: int | None = 0
     subtotal: float | None = 0.0
@@ -99,7 +99,7 @@ class OrderRead(BaseModel):
     id: UUID
     order_number: str | None = None
     customer_id: UUID | None = None
-    status: int | None = 0
+    status: int | None = 1
     status_label: str | None = None
     status_text: str | None = None
     payment_method: str | None = None
@@ -119,8 +119,12 @@ class OrderRead(BaseModel):
     meta: dict[str, Any] | None = None
     created_at: datetime | str | None = None
     updated_at: datetime | str | None = None
+    order_date: Any | None = None
+    jde_push_status: int | None = 0
+    jde_push_date: Any | None = None
     customer: CustomerRead | None = None
     items: list[OrderItemRead] = []
+    logs: list["OrderLogRead"] = []
     tracking_number: str | None = None
     waybill_id: str | None = None
     courier_code: str | None = None
@@ -137,6 +141,19 @@ class OrderRead(BaseModel):
     eta_source: str | None = None
     eta_notes: str | None = None
     eta_label: str | None = None
+
+
+class OrderLogRead(BaseModel):
+    id: UUID | None = None
+    order_id: UUID | None = None
+    action: str
+    status_from: str | None = None
+    status_to: str | None = None
+    notes: str | None = None
+    creator: str | None = None
+    editor: str | None = None
+    created_at: Any | None = None
+    updated_at: Any | None = None
 
 
 class OrderHistoryRead(OrderRead):

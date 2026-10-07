@@ -242,17 +242,11 @@ def _build_product_groups(product_dict: dict[str, Any]) -> None:
 def _product_to_dict(product: Product) -> dict[str, Any]:
     thumb_url = get_media_url(product.thumbnail)
     c_type = getattr(product, "courier_type", "keduanya") or "keduanya"
-    s_scheme = getattr(product, "shipping_scheme", "dimension") or "dimension"
-    s_cost = float(getattr(product, "shipping_cost", 0.0) or 0.0)
 
     courier_labels = {
         "toko": "Pengiriman by Toko",
         "expedisi": "Pengiriman by Expedisi",
         "keduanya": "Keduanya (Toko & Expedisi)",
-    }
-    scheme_labels = {
-        "fixed": "Ongkos Kirim Tetap (Fixed Rate)",
-        "dimension": "Hitung dari Dimensi & Berat",
     }
 
     all_images = [
@@ -346,9 +340,6 @@ def _product_to_dict(product: Product) -> dict[str, Any]:
         "warranty_duration": getattr(product, "warranty_duration", None),
         "courier_type": c_type,
         "courier_type_label": courier_labels.get(c_type, "Keduanya (Toko & Expedisi)"),
-        "shipping_scheme": s_scheme,
-        "shipping_scheme_label": scheme_labels.get(s_scheme, "Hitung dari Dimensi & Berat"),
-        "shipping_cost": s_cost,
         "length": getattr(product, "length", None),
         "width": getattr(product, "width", None),
         "height": getattr(product, "height", None),

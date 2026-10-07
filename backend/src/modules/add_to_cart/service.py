@@ -1,3 +1,6 @@
+import datetime
+import random
+import string
 from typing import Any
 from uuid import UUID
 
@@ -8,7 +11,8 @@ from sqlalchemy.orm import selectinload
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import ResourceNotFoundError
 from ..customer.models import Customer
-from ..order.models import Order, OrderItem
+from ..order.models import Order, OrderItem, OrderLog
+from ..order.service import OrderService
 from ..product.models import Product, ProductVariant
 from .models import AddToCart, AddToCartItem
 from .schemas import AddToCartCheckout, AddToCartCreate, AddToCartItemCreate, AddToCartUpdate
@@ -627,9 +631,16 @@ class AddToCartService:
             db.add(customer)
             await db.flush()
 
+        now = datetime.datetime.now()
+        order_number = await OrderService.generate_order_number(db, now.date())
+
         order = Order(
+            order_number=order_number,
+            order_date=now.date(),
+            jde_push_status=0,
+            jde_push_date=None,
             customer_id=customer.id,
-            status=Order.STATUS_DRAFT,
+            status=Order.STATUS_PENDING_APPROVAL,
             payment_method=checkout_in.payment_method,
             payment_status=checkout_in.payment_status or Order.PAYMENT_UNPAID,
             subtotal=add_to_cart.subtotal or 0.0,
@@ -643,6 +654,17 @@ class AddToCartService:
         )
         db.add(order)
         await db.flush()
+
+        order_log = OrderLog(
+            order_id=order.id,
+            action="created",
+            status_from=None,
+            status_to=str(order.status),
+            notes="Pesanan baru dibuat dari keranjang",
+            creator=creator_id or "customer",
+            editor=creator_id or "customer",
+        )
+        db.add(order_log)
 
         for item in items:
             order_item = OrderItem(
@@ -690,6 +712,9 @@ class AddToCartService:
             "creator": new_order.creator,
             "editor": new_order.editor,
             "deleted": new_order.deleted,
+            "order_date": new_order.order_date.isoformat() if getattr(new_order, "order_date", None) else (new_order.created_at.date().isoformat() if getattr(new_order, "created_at", None) else None),
+            "jde_push_status": getattr(new_order, "jde_push_status", 0) if getattr(new_order, "jde_push_status", None) is not None else 0,
+            "jde_push_date": new_order.jde_push_date.isoformat() if getattr(new_order, "jde_push_date", None) else None,
             "created_at": new_order.created_at,
             "updated_at": new_order.updated_at,
             "customer": {

@@ -6,7 +6,7 @@ import datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, String
+from sqlalchemy import select, func, String, cast, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.config.settings import settings
@@ -234,6 +234,121 @@ ESPAY_CHECKOUT_EXAMPLE = {
         },
     },
 )
+def resolve_espay_product_code(
+    code_or_bank: str | None,
+    payment_type: int | None = None,
+    bank_info: dict[str, Any] | None = None,
+    payment_method_code: str | None = None,
+) -> str:
+    """
+    Resolves Espay product code when multiple payment methods share the same clearing bank code (e.g. '014').
+    Escalation priority:
+    1. If explicit product_code exists in bank_info, use it.
+    2. If code_or_bank or payment_method_code is alphanumeric (not purely numeric digits), use it.
+    3. If numeric clearing code (e.g. '014', '008'), escalate based on payment type:
+       - '014': Type 5 (Credit Card) -> CREDITCARD, Type 2 (VA) -> BCAATM, Type 3 (E-Wallet) -> GOPAYINAPP
+       - '008': Type 5 (Credit Card) -> CREDITCARD, Type 2 (VA) -> MANDIRIATM, Type 4 (QRIS) -> QRISPLUS
+       - '002': Type 2 (VA) -> BRIATM
+       - '022': Type 2 (VA) -> CIMBATM
+       - '011': Type 2 (VA) -> DANAMONATM
+       - '016': Type 2 (VA) -> BIIATM
+       - '472': Type 2 (VA) -> BANKSAQUATM
+       - '503': Type 3 (E-Wallet) -> OVO
+    """
+    if bank_info and isinstance(bank_info, dict):
+        p_code = bank_info.get("product_code")
+        if p_code and str(p_code).strip() and not str(p_code).strip().isdigit():
+            return str(p_code).strip().upper()
+
+    candidate = (payment_method_code or code_or_bank or "").strip()
+    if candidate and not candidate.isdigit():
+        return candidate.upper()
+
+    bank_code = (code_or_bank or (bank_info.get("bank_code") if isinstance(bank_info, dict) else "") or "").strip()
+
+    BANK_PRODUCT_MAP: dict[str, dict[Any, str]] = {
+        "014": {
+            5: "CREDITCARD",
+            2: "BCAATM",
+            3: "GOPAYINAPP",
+            "default": "BCAATM",
+        },
+        "008": {
+            5: "CREDITCARD",
+            2: "MANDIRIATM",
+            3: "QRISPLUS",
+            4: "QRISPLUS",
+            "default": "MANDIRIATM",
+        },
+        "002": {
+            5: "CREDITCARD",
+            2: "BRIATM",
+            "default": "BRIATM",
+        },
+        "022": {
+            5: "CREDITCARD",
+            2: "CIMBATM",
+            "default": "CIMBATM",
+        },
+        "011": {
+            5: "CREDITCARD",
+            2: "DANAMONATM",
+            "default": "DANAMONATM",
+        },
+        "016": {
+            5: "CREDITCARD",
+            2: "BIIATM",
+            "default": "BIIATM",
+        },
+        "472": {
+            2: "BANKSAQUATM",
+            "default": "BANKSAQUATM",
+        },
+        "503": {
+            3: "OVO",
+            "default": "OVO",
+        },
+    }
+
+    if bank_code in BANK_PRODUCT_MAP:
+        mapping = BANK_PRODUCT_MAP[bank_code]
+        if payment_type and payment_type in mapping:
+            return mapping[payment_type]
+        return mapping.get("default", bank_code)
+
+    return candidate or bank_code
+
+
+@router.post(
+    "/checkout",
+    response_model=dict[str, Any],
+    summary="Checkout with Espay",
+    description="Initiates an Espay transaction and returns payment details including VA number and payment URL.",
+    responses={
+        200: {
+            "description": "Espay transaction created successfully",
+            "content": {
+                "application/json": {
+                    "example": ESPAY_CHECKOUT_EXAMPLE
+                }
+            },
+        },
+        400: {
+            "description": "Invalid request or Espay error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Failed to create Espay order: Invalid signature",
+                        "support_id": "a1b2c3d4",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Order or Payment Method not found",
+        },
+    },
+)
 async def espay_checkout(
     request: EspayCheckoutRequest,
     db: AsyncSessionDep,
@@ -246,16 +361,42 @@ async def espay_checkout(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # 2. Fetch Payment Method by code
+    # 2. Fetch Payment Method by code (with escalation for numeric clearing codes like 014)
+    pm_code_input = request.payment_method_code.strip()
     pm_stmt = select(PaymentMethod).where(
-        PaymentMethod.code == request.payment_method_code,
+        func.upper(PaymentMethod.code) == pm_code_input.upper(),
         PaymentMethod.deleted == False,
     )
     pm_result = await db.execute(pm_stmt)
     payment_method = pm_result.scalar_one_or_none()
 
     if not payment_method:
-        pm_stmt_any = select(PaymentMethod).where(PaymentMethod.code == request.payment_method_code)
+        # Escalation: try resolved product code (e.g. 014 -> BCAATM)
+        escalated_code = resolve_espay_product_code(pm_code_input)
+        if escalated_code != pm_code_input:
+            pm_stmt_esc = select(PaymentMethod).where(
+                func.upper(PaymentMethod.code) == escalated_code.upper(),
+                PaymentMethod.deleted == False,
+            )
+            pm_result_esc = await db.execute(pm_stmt_esc)
+            payment_method = pm_result_esc.scalar_one_or_none()
+
+    if not payment_method:
+        # Check in bank_info JSON field (product_code or bank_code)
+        pm_stmt_json = select(PaymentMethod).where(
+            PaymentMethod.deleted == False,
+            or_(
+                cast(PaymentMethod.bank_info["product_code"], String) == f'"{pm_code_input}"',
+                cast(PaymentMethod.bank_info["product_code"], String) == pm_code_input,
+                cast(PaymentMethod.bank_info["bank_code"], String) == f'"{pm_code_input}"',
+                cast(PaymentMethod.bank_info["bank_code"], String) == pm_code_input,
+            )
+        ).order_by(PaymentMethod.type.asc())
+        pm_result_json = await db.execute(pm_stmt_json)
+        payment_method = pm_result_json.scalars().first()
+
+    if not payment_method:
+        pm_stmt_any = select(PaymentMethod).where(func.upper(PaymentMethod.code) == pm_code_input.upper())
         pm_res_any = await db.execute(pm_stmt_any)
         payment_method = pm_res_any.scalar_one_or_none()
 
@@ -272,7 +413,6 @@ async def espay_checkout(
         or bank_info.get("bank")
         or payment_method.name
     )
-    bank_code = bank_info.get("bank_code", request.payment_method_code)
     type_name = resolve_payment_type_name(payment_method.type)
     cara_bayar = resolve_cara_bayar(
         payment_method,
@@ -280,6 +420,14 @@ async def espay_checkout(
         pm_name=payment_method.name,
         bank_name=bank_name,
         instructions=payment_method.instructions,
+    )
+
+    # Resolve specific product_code for Espay SendInvoice parameter 'bank_code'
+    espay_bank_code = resolve_espay_product_code(
+        code_or_bank=request.payment_method_code,
+        payment_type=payment_method.type,
+        bank_info=bank_info,
+        payment_method_code=payment_method.code,
     )
 
     # 4. Prepare Espay API call
@@ -291,7 +439,7 @@ async def espay_checkout(
     comm_code = settings.ESPAY_MERCHANT_KEY
     rq_uuid = str(uuid.uuid4())
     rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    espay_order_id = order.order_number.replace("-", "") if order.order_number else str(order.id).replace("-", "")
+    espay_order_id = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
 
     data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
     signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
@@ -307,7 +455,7 @@ async def espay_checkout(
         'remark2': 'Customer',
         'remark3': '',
         'update': 'N',
-        'bank_code': bank_code,
+        'bank_code': espay_bank_code,
         'va_expired': 1440,
         'signature': signature,
     }
