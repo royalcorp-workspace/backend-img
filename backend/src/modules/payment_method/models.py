@@ -18,7 +18,7 @@ class PaymentMethod(Base, TimestampMixin):
         default=uuid.uuid4,
         init=False,
     )
-    code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(50), unique=False, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     type: Mapped[int | None] = mapped_column(Integer, default=None)
     provider: Mapped[str | None] = mapped_column(String(100), default=None)
