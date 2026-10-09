@@ -5,6 +5,10 @@ import time
 import datetime
 import urllib.parse
 import random
+import re
+import json
+import hmac
+import base64
 import httpx
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -384,71 +388,211 @@ async def checkout_payment(
         try:
             amount = f"{float(order.total or 0.0):.2f}"
             base_url = settings.ESPAY_BASE_URL.rstrip('/')
-            espay_url = base_url.replace('/rest/merchant', '/rest/merchantpg') + '/sendinvoice'
 
-            signature_key = settings.ESPAY_SIGNATURE_KEY
-            comm_code = settings.ESPAY_MERCHANT_KEY
-            rq_uuid = str(uuid.uuid4())
-            rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            espay_order_id = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
+            if payment_method.type == 4:
+                # =========================================================================
+                # SNAP QRIS MPM Integration (Direct API SNAP)
+                # Menghindari bentrok bank_code 008 (Mandiri VA)
+                # =========================================================================
+                snap_qr_url = re.sub(r'/rest/.*$', '', base_url) + '/api/v1.0/qr/qr-mpm-generate'
+                partner_ref = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
+                qris_product_code = "SALDOMUQR"
+                if isinstance(payment_method.bank_info, dict) and payment_method.bank_info.get("product_code"):
+                    qris_product_code = payment_method.bank_info["product_code"]
 
-            data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
-            signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
+                validity_period = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S+07:00")
+                qris_payload = {
+                    "partnerReferenceNo": partner_ref,
+                    "merchantId": settings.ESPAY_MERCHANT_KEY,
+                    "amount": {
+                        "value": amount,
+                        "currency": "IDR",
+                    },
+                    "additionalInfo": {
+                        "productCode": qris_product_code,
+                    },
+                    "validityPeriod": validity_period,
+                }
 
-            payload = {
-                'rq_uuid': rq_uuid,
-                'rq_datetime': rq_datetime,
-                'order_id': espay_order_id,
-                'amount': amount,
-                'ccy': 'IDR',
-                'comm_code': comm_code,
-                'remark1': '00000000000',
-                'remark2': 'Customer',
-                'remark3': '',
-                'update': 'N',
-                'bank_code': espay_bank_code,
-                'va_expired': 1440,
-                'signature': signature,
-            }
+                x_timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S+07:00")
+                x_external_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + str(random.randint(1000, 9999))
+                json_str = json.dumps(qris_payload, separators=(',', ':'))
+                body_hash = hashlib.sha256(json_str.encode()).hexdigest().lower()
+                string_to_sign = f"POST:/api/v1.0/qr/qr-mpm-generate:{body_hash}:{x_timestamp}"
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(espay_url, data=payload)
-                payment_data = response.json()
+                x_sig = base64.b64encode(
+                    hmac.new(settings.ESPAY_SIGNATURE_KEY.encode(), string_to_sign.encode(), hashlib.sha512).digest()
+                ).decode()
 
-            if response.status_code == 200 and payment_data.get('error_code') == '0000':
-                if payment_method.type == 4:
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-TIMESTAMP": x_timestamp,
+                    "X-SIGNATURE": x_sig,
+                    "X-EXTERNAL-ID": x_external_id,
+                    "X-PARTNER-ID": settings.ESPAY_MERCHANT_KEY,
+                    "CHANNEL-ID": "ESPAY",
+                }
+
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(snap_qr_url, json=qris_payload, headers=headers)
+                    payment_data = response.json()
+
+                if response.status_code == 200 and (payment_data.get('responseCode') in ('2004700', '2000000') or payment_data.get('error_code') == '0000'):
                     va_number = None
                     va_expired = None
+                    add_info = payment_data.get('additionalInfo') if isinstance(payment_data.get('additionalInfo'), dict) else {}
+                    trx_id = (
+                        add_info.get('referenceNo')
+                        or payment_data.get('referenceNo')
+                        or payment_data.get('trx_id')
+                    )
+                    if not trx_id and payment_data.get('qrUrl'):
+                        parsed = urllib.parse.urlparse(payment_data.get('qrUrl'))
+                        query_params = urllib.parse.parse_qs(parsed.query)
+                        if 'trx_id' in query_params:
+                            trx_id = query_params['trx_id'][0]
+                    trx_id = trx_id or f"TRX-QRIS-{clean_order_ref}-{random.randint(1000, 9999)}"
+                    reference = trx_id
+                    qr_string = payment_data.get('qrContent') or payment_data.get('qr_string')
+                    qr_code = payment_data.get('qrImage') or payment_data.get('qrUrl') or payment_data.get('qr_code')
+                    payment_url = f"/thankyou?order_id={order.id}"
+                    espay_success = True
+                    logger.info(f"SNAP QRIS MPM succeeded for order {order.order_number}, TRX ID: {trx_id}")
                 else:
+                    logger.warning(f"SNAP QRIS MPM unfulfilled, falling back to native generator. Response: {payment_data}")
+            elif payment_method.type == 6:
+                # =========================================================================
+                # Direct Debit Integration
+                # Sesuai Spesifikasi Request Direct Debit Espay
+                # =========================================================================
+                debit_url = re.sub(r'/rest/.*$', '', base_url) + '/apidirectdebit/v1.0/debit/registration-account-binding'
+                clean_order_ref = re.sub(r'[^\d]', '', order.order_number) if order.order_number else str(order.id)[:12]
+                if len(clean_order_ref) < 8:
+                    clean_order_ref = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + str(random.randint(1000, 9999))
+                partner_reference_no = clean_order_ref
+
+                debit_phone = "087888888888"
+                cust_name = "Customer"
+                debit_product_code = "DANAMONDIRECTDEBIT"
+                if isinstance(payment_method.bank_info, dict) and payment_method.bank_info.get("product_code"):
+                    debit_product_code = payment_method.bank_info["product_code"]
+
+                account_token = f"ESP{datetime.datetime.now().strftime('%y%m%d%H%M%S')}{uuid.uuid4().hex[:16]}"
+                cust_account_no = clean_order_ref[-12:]
+
+                debit_payload = {
+                    "partnerReferenceNo": partner_reference_no,
+                    "merchantId": settings.ESPAY_MERCHANT_KEY,
+                    "phoneNo": debit_phone,
+                    "authCode": "YT1Ex4UGXzAcxw5Ve8l4QNLH2GmGPN",
+                    "additionalInfo": {
+                        "productCode": debit_product_code,
+                        "accountToken": account_token,
+                        "ktpFile": "",
+                        "npwpFile": "",
+                        "pdfFile": "",
+                        "amount": {
+                            "value": amount,
+                            "currency": "IDR",
+                        },
+                        "customerAccountNumber": cust_account_no,
+                        "customerName": cust_name,
+                        "debitType": "V",
+                    },
+                }
+
+                x_timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S+07:00")
+                x_external_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + str(random.randint(1000, 9999))
+                json_str = json.dumps(debit_payload, separators=(',', ':'))
+                body_hash = hashlib.sha256(json_str.encode()).hexdigest().lower()
+                string_to_sign = f"POST:/apidirectdebit/v1.0/debit/registration-account-binding:{body_hash}:{x_timestamp}"
+
+                x_sig = base64.b64encode(
+                    hmac.new(settings.ESPAY_SIGNATURE_KEY.encode(), string_to_sign.encode(), hashlib.sha512).digest()
+                ).decode()
+
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-TIMESTAMP": x_timestamp,
+                    "X-SIGNATURE": x_sig,
+                    "X-EXTERNAL-ID": x_external_id,
+                    "X-PARTNER-ID": settings.ESPAY_MERCHANT_KEY,
+                    "CHANNEL-ID": "ESPAY",
+                }
+
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(debit_url, json=debit_payload, headers=headers)
+                    payment_data = response.json()
+
+                if response.status_code == 200 and (payment_data.get('responseCode') in ('2005400', '2005500', '2000000') or payment_data.get('error_code') == '0000'):
+                    va_number = None
+                    va_expired = None
+                    add_info = payment_data.get('additionalInfo') if isinstance(payment_data.get('additionalInfo'), dict) else {}
+                    trx_id = (
+                        add_info.get('referenceNo')
+                        or payment_data.get('referenceNo')
+                        or payment_data.get('trx_id')
+                        or f"TRX-DC-{clean_order_ref}-{random.randint(1000, 9999)}"
+                    )
+                    reference = trx_id
+                    payment_url = payment_data.get('webRedirectUrl') or payment_data.get('payment_url') or payment_url
+                    espay_success = True
+                    logger.info(f"Direct Debit registration succeeded for order {order.order_number}, TRX ID: {trx_id}")
+                else:
+                    logger.warning(f"Direct Debit unfulfilled, falling back to native generator. Response: {payment_data}")
+            else:
+                # =========================================================================
+                # Standard Virtual Account & SendInvoice Integration (TETAP UTUH)
+                # =========================================================================
+                espay_url = base_url.replace('/rest/merchant', '/rest/merchantpg') + '/sendinvoice'
+                signature_key = settings.ESPAY_SIGNATURE_KEY
+                comm_code = settings.ESPAY_MERCHANT_KEY
+                rq_uuid = str(uuid.uuid4())
+                rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                espay_order_id = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
+
+                data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
+                signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
+
+                payload = {
+                    'rq_uuid': rq_uuid,
+                    'rq_datetime': rq_datetime,
+                    'order_id': espay_order_id,
+                    'amount': amount,
+                    'ccy': 'IDR',
+                    'comm_code': comm_code,
+                    'remark1': '00000000000',
+                    'remark2': 'Customer',
+                    'remark3': '',
+                    'update': 'N',
+                    'bank_code': espay_bank_code,
+                    'va_expired': 1440,
+                    'signature': signature,
+                }
+
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(espay_url, data=payload)
+                    payment_data = response.json()
+
+                if response.status_code == 200 and payment_data.get('error_code') == '0000':
                     va_number = payment_data.get('va_number')
                     expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
                     va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                # Ambil TRX ID resmi yang dihasilkan langsung oleh Espay
-                additional_info = payment_data.get('additionalInfo') if isinstance(payment_data.get('additionalInfo'), dict) else {}
-                trx_id = (
-                    payment_data.get('trx_id')
-                    or payment_data.get('referenceNo')
-                    or additional_info.get('referenceNo')
-                    or payment_data.get('reference')
-                    or reference
-                )
-                reference = trx_id
-                payment_url = payment_data.get('payment_url', payment_url)
-                if payment_data.get('qr_string'):
-                    qr_string = payment_data.get('qr_string')
-                elif payment_data.get('qrContent'):
-                    qr_string = payment_data.get('qrContent')
-                if payment_data.get('qr_code'):
-                    qr_code = payment_data.get('qr_code')
-                elif payment_data.get('qrImage'):
-                    qr_code = payment_data.get('qrImage')
-                elif payment_data.get('qrUrl'):
-                    qr_code = payment_data.get('qrUrl')
-                espay_success = True
-                logger.info(f"Espay SendInvoice succeeded for order {order.order_number}, TRX ID: {trx_id}")
-            else:
-                logger.warning(f"Espay SendInvoice unfulfilled. Falling back to native payment generator.")
+                    additional_info = payment_data.get('additionalInfo') if isinstance(payment_data.get('additionalInfo'), dict) else {}
+                    trx_id = (
+                        payment_data.get('trx_id')
+                        or payment_data.get('referenceNo')
+                        or additional_info.get('referenceNo')
+                        or payment_data.get('reference')
+                        or reference
+                    )
+                    reference = trx_id
+                    payment_url = payment_data.get('payment_url', payment_url)
+                    espay_success = True
+                    logger.info(f"Espay SendInvoice succeeded for order {order.order_number}, TRX ID: {trx_id}")
+                else:
+                    logger.warning(f"Espay SendInvoice unfulfilled. Falling back to native payment generator.")
         except Exception as e:
             logger.warning(f"Espay API connection exception: {str(e)}. Falling back to native payment generator.")
 
