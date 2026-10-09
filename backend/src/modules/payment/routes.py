@@ -231,14 +231,15 @@ def generate_native_payment_details(
     qr_code = None
     va_number = None
 
-    is_qris = (pm_type == 4) or ("QRIS" in code_upper)
-    is_credit_card = (pm_type == 5) or ("CREDIT" in code_upper)
-    is_debit_card = (pm_type == 6) or ("DEBIT" in code_upper)
+    is_qris = (pm_type == 4)
+    is_credit_card = (pm_type == 5)
+    is_debit_card = (pm_type == 6)
 
     if is_qris:
         trx_id = f"TRX-QRIS-{clean_order_ref}-{random_suffix}"
         qr_string = f"ID.CO.QRIS.IMG.{clean_order_ref}.{round(float(order.total or 0))}"
         qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
+        va_number = None
         payment_url = f"/thankyou?order_id={order.id}"
     elif is_credit_card:
         trx_id = f"TRX-CC-{clean_order_ref}-{random_suffix}"
@@ -258,7 +259,7 @@ def generate_native_payment_details(
         "trx_id": trx_id,
         "reference": trx_id,
         "va_number": va_number,
-        "va_expired": va_expired,
+        "va_expired": va_expired if va_number else None,
         "qr_string": qr_string,
         "qr_code": qr_code,
         "payment_url": payment_url,
@@ -415,9 +416,13 @@ async def checkout_payment(
                 payment_data = response.json()
 
             if response.status_code == 200 and payment_data.get('error_code') == '0000':
-                va_number = payment_data.get('va_number')
-                expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
-                va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
+                if payment_method.type == 4:
+                    va_number = None
+                    va_expired = None
+                else:
+                    va_number = payment_data.get('va_number')
+                    expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
+                    va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
                 reference = payment_data.get('reference', reference)
                 trx_id = reference
                 payment_url = payment_data.get('payment_url', payment_url)
