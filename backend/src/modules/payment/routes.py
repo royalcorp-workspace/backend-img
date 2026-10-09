@@ -398,7 +398,8 @@ async def checkout_payment(
                 partner_ref = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
                 qris_product_code = "SALDOMUQR"
                 if isinstance(payment_method.bank_info, dict) and payment_method.bank_info.get("product_code"):
-                    qris_product_code = payment_method.bank_info["product_code"]
+                    if str(payment_method.bank_info["product_code"]).upper() not in ("QRISPLUS", "QRIS"):
+                        qris_product_code = payment_method.bank_info["product_code"]
 
                 validity_period = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S+07:00")
                 qris_payload = {
@@ -451,7 +452,6 @@ async def checkout_payment(
                         query_params = urllib.parse.parse_qs(parsed.query)
                         if 'trx_id' in query_params:
                             trx_id = query_params['trx_id'][0]
-                    trx_id = trx_id or f"TRX-QRIS-{clean_order_ref}-{random.randint(1000, 9999)}"
                     reference = trx_id
                     qr_string = payment_data.get('qrContent') or payment_data.get('qr_string')
                     qr_code = payment_data.get('qrImage') or payment_data.get('qrUrl') or payment_data.get('qr_code')
