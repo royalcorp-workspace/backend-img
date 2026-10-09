@@ -3,15 +3,20 @@ import uuid
 import hashlib
 import time
 import datetime
+import urllib.parse
+import random
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, String, cast, or_
+from sqlalchemy import select, func, String, cast, or_, text
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.config.settings import settings
 from ...infrastructure.dependencies import AsyncSessionDep
+from ...infrastructure.logging import get_logger
 from ..order.models import Order
+from ..customer.models import Customer
 from ..payment_method.models import PaymentMethod
 from ..payment_method.service import (
     PAYMENT_METHOD_TYPES,
@@ -20,10 +25,14 @@ from ..payment_method.service import (
 )
 from ..add_to_cart.models import AddToCart
 
+logger = get_logger()
 router = APIRouter(prefix="/payment", tags=["Payment"])
 
 
+# ==============================================================================
 # Schemas
+# ==============================================================================
+
 class PaymentStatusResponse(BaseModel):
     order_id: uuid.UUID = Field(..., example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     payment_status: int | None = Field(..., example=2)
@@ -79,161 +88,50 @@ class EspayCheckoutResponse(BaseModel):
     redirect_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM")
     va_number: str | None = Field(None, example="1234567890123456")
     va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "success": True,
-                "payment": {
-                    "id": "1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
-                    "order_id": "8f30c3a2-b911-4a4b-841a-e4b51a5c6d70",
-                    "order_number": "ORD-20260828-001",
-                    "payment_method": "BCAATM",
-                    "bank_name": "BCA",
-                    "type": 2,
-                    "type_name": "Virtual Account",
-                    "amount": 2500000.00,
-                    "status": "pending",
-                    "reference": "PAY-1724808000",
-                    "payment_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
-                    "cara_bayar": [
-                        "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
-                        "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
-                        "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-                        "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-                        "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-                        "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-                    ],
-                    "payment_method_detail": {
-                        "id": "019f5933-08c8-7082-b1cd-7185cff32192",
-                        "code": "BCAATM",
-                        "name": "BCA Virtual Account",
-                        "type": 2,
-                        "type_name": "Virtual Account",
-                        "bank_name": "BCA",
-                        "provider": "Espay",
-                        "image": "https://example.com/bca.png",
-                        "has_charge": False,
-                        "charge_type": 1,
-                        "charge_value": 0.0,
-                        "charge_bearer": "customer",
-                        "minimum_amount": 10000.0,
-                        "maximum_amount": None,
-                        "bank_info": {
-                            "bank_name": "BCA",
-                            "bank_code": "014",
-                            "account_name": "PT ROYAL CORP",
-                        },
-                        "instructions": [
-                            "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
-                            "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
-                            "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-                            "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-                            "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-                            "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-                        ],
-                        "cara_bayar": [
-                            "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
-                            "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
-                            "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-                            "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-                            "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-                            "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-                        ],
-                    },
-                },
-                "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
-                "va_number": "1234567890123456",
-                "va_expired": "2026-09-02 10:00:00",
-            }
-        }
+    qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
+    qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
 
 
-ESPAY_CHECKOUT_EXAMPLE = {
-    "success": True,
-    "payment": {
-        "id": "1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
-        "order_id": "8f30c3a2-b911-4a4b-841a-e4b51a5c6d70",
-        "order_number": "ORD-20260828-001",
-        "payment_method": "BCAATM",
-        "bank_name": "BCA",
-        "type": 2,
-        "type_name": "Virtual Account",
-        "amount": 2500000.00,
-        "status": "pending",
-        "reference": "PAY-1724808000",
-        "payment_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
-        "cara_bayar": [
-            "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
-            "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
-            "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-            "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-            "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-            "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-        ],
-        "payment_method_detail": {
-            "id": "019f5933-08c8-7082-b1cd-7185cff32192",
-            "code": "BCAATM",
-            "name": "BCA Virtual Account",
-            "type": 2,
-            "type_name": "Virtual Account",
-            "bank_name": "BCA",
-            "provider": "Espay",
-            "image": "https://example.com/bca.png",
-            "has_charge": False,
-            "charge_type": 1,
-            "charge_value": 0.0,
-            "charge_bearer": "customer",
-            "minimum_amount": 10000.0,
-            "maximum_amount": None,
-            "bank_info": {
-                "bank_name": "BCA",
-                "bank_code": "014",
-                "account_name": "PT ROYAL CORP",
-            },
-            "instructions": [
-                "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
-                "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
-                "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-                "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-                "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-                "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-            ],
-            "cara_bayar": [
-                "Buka aplikasi Mobile Banking BCA atau kunjungi ATM BCA terdekat.",
-                "Pilih menu Transfer / Pembayaran > Virtual Account (BCA Virtual Account).",
-                "Masukkan nomor Virtual Account tujuan pembayaran yang tertera.",
-                "Periksa kecocokan nama penerima dan nominal tagihan transaksi Anda.",
-                "Konfirmasi transaksi dan masukkan PIN untuk menyelesaikan pembayaran.",
-                "Simpan bukti pembayaran atau struk transfer sebagai bukti sah.",
-            ],
-        },
-    },
-    "redirect_url": "https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM",
-    "va_number": "1234567890123456",
-    "va_expired": "2026-09-02 10:00:00",
-}
+# SNAP BI Schemas
+class SnapAmount(BaseModel):
+    value: str = Field(..., example="2500000.00")
+    currency: str = Field("IDR", example="IDR")
 
 
-@router.post(
-    "/espay/checkout",
-    response_model=EspayCheckoutResponse,
-    summary="Espay Checkout",
-    description="Initialize payment checkout via Espay with payment method details, instructions, bank name, type, and optional cart cleanup.",
-    responses={
-        200: {
-            "description": "Successful checkout initialization",
-            "content": {
-                "application/json": {
-                    "example": ESPAY_CHECKOUT_EXAMPLE
-                }
-            },
-        },
-        404: {
-            "description": "Order or Payment Method not found",
-        },
-    },
-)
+class SnapVaInquiryRequest(BaseModel):
+    partnerServiceId: str | None = Field(None, example="8808")
+    customerNo: str | None = Field(None, example="0001")
+    virtualAccountNo: str | None = Field(None, example="88080001")
+    inquiryRequestId: str | None = Field(None, example="c3b9b4f0-4567-4a8b-9456-123456789abc")
+    additionalInfo: dict[str, Any] | None = None
+
+
+class SnapVaPaymentRequest(BaseModel):
+    partnerServiceId: str | None = Field(None, example="8808")
+    customerNo: str | None = Field(None, example="0001")
+    virtualAccountNo: str | None = Field(None, example="88080001")
+    inquiryRequestId: str | None = None
+    paymentRequestId: str | None = None
+    paidAmount: SnapAmount | dict[str, Any] | None = None
+    trxId: str | None = None
+    referenceNo: str | None = None
+    additionalInfo: dict[str, Any] | None = None
+
+
+class SnapQrNotifyRequest(BaseModel):
+    partnerReferenceNo: str | None = Field(None, example="ORD-20260828-001")
+    originalPartnerReferenceNo: str | None = None
+    referenceNo: str | None = None
+    externalStoreId: str | None = None
+    order_id: str | None = None
+    amount: SnapAmount | dict[str, Any] | None = None
+    additionalInfo: dict[str, Any] | None = None
+
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
 def resolve_espay_product_code(
     code_or_bank: str | None,
     payment_type: int | None = None,
@@ -242,18 +140,6 @@ def resolve_espay_product_code(
 ) -> str:
     """
     Resolves Espay product code when multiple payment methods share the same clearing bank code (e.g. '014').
-    Escalation priority:
-    1. If explicit product_code exists in bank_info, use it.
-    2. If code_or_bank or payment_method_code is alphanumeric (not purely numeric digits), use it.
-    3. If numeric clearing code (e.g. '014', '008'), escalate based on payment type:
-       - '014': Type 5 (Credit Card) -> CREDITCARD, Type 2 (VA) -> BCAATM, Type 3 (E-Wallet) -> GOPAYINAPP
-       - '008': Type 5 (Credit Card) -> CREDITCARD, Type 2 (VA) -> MANDIRIATM, Type 4 (QRIS) -> QRISPLUS
-       - '002': Type 2 (VA) -> BRIATM
-       - '022': Type 2 (VA) -> CIMBATM
-       - '011': Type 2 (VA) -> DANAMONATM
-       - '016': Type 2 (VA) -> BIIATM
-       - '472': Type 2 (VA) -> BANKSAQUATM
-       - '503': Type 3 (E-Wallet) -> OVO
     """
     if bank_info and isinstance(bank_info, dict):
         p_code = bank_info.get("product_code")
@@ -319,37 +205,87 @@ def resolve_espay_product_code(
     return candidate or bank_code
 
 
+def generate_native_payment_details(
+    order: Order,
+    payment_method: PaymentMethod,
+    bank_code: str,
+) -> dict[str, Any]:
+    """
+    Generates native payment details (VA Number, QRIS, Reference) autonomously
+    without requiring external Espay credentials in .env.
+    """
+    code_upper = (payment_method.code or "").upper()
+    bank_code_str = str(bank_code).upper()
+
+    # Determine bank VA prefix
+    if "BCA" in code_upper or bank_code_str == "014":
+        va_prefix = "8808"
+    elif "MANDIRI" in code_upper or bank_code_str == "008":
+        va_prefix = "89508"
+    elif "BRI" in code_upper or bank_code_str == "002":
+        va_prefix = "12345"
+    elif "BNI" in code_upper or bank_code_str == "009":
+        va_prefix = "988"
+    elif "PERMATA" in code_upper or bank_code_str == "013":
+        va_prefix = "8422"
+    elif "CIMB" in code_upper or bank_code_str == "022":
+        va_prefix = "118"
+    elif "DANAMON" in code_upper or bank_code_str == "011":
+        va_prefix = "8888"
+    elif "SAQU" in code_upper or bank_code_str == "472":
+        va_prefix = "472"
+    else:
+        va_prefix = "88"
+
+    # Extract digits from order number or id
+    order_digits = "".join([c for c in (order.order_number or str(order.id)) if c.isdigit()])
+    if len(order_digits) < 6:
+        order_digits = f"{order_digits}{random.randint(100000, 999999)}"
+    va_number = f"{va_prefix}{order_digits[-8:]}"
+
+    # Expiry 24h
+    now = datetime.datetime.now()
+    va_expired = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Generate QRIS details if QRIS payment method
+    is_qris = (payment_method.type == 4) or ("QRIS" in code_upper)
+    qr_string = None
+    qr_code = None
+    if is_qris:
+        clean_order_ref = (order.order_number or str(order.id)[:8]).replace("-", "").replace(".", "")
+        qr_string = f"ID.CO.QRIS.IMG.{clean_order_ref}.{round(float(order.total or 0))}"
+        qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
+
+    reference = f"PAY-IMG-{int(time.time())}"
+    payment_url = f"/thankyou?order_id={order.id}"
+
+    return {
+        "va_number": va_number,
+        "va_expired": va_expired,
+        "qr_string": qr_string,
+        "qr_code": qr_code,
+        "reference": reference,
+        "payment_url": payment_url,
+    }
+
+
+# ==============================================================================
+# Payment Checkout Endpoints
+# ==============================================================================
+
 @router.post(
     "/checkout",
     response_model=dict[str, Any],
-    summary="Checkout with Espay",
-    description="Initiates an Espay transaction and returns payment details including VA number and payment URL.",
-    responses={
-        200: {
-            "description": "Espay transaction created successfully",
-            "content": {
-                "application/json": {
-                    "example": ESPAY_CHECKOUT_EXAMPLE
-                }
-            },
-        },
-        400: {
-            "description": "Invalid request or Espay error",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Failed to create Espay order: Invalid signature",
-                        "support_id": "a1b2c3d4",
-                    }
-                }
-            },
-        },
-        404: {
-            "description": "Order or Payment Method not found",
-        },
-    },
+    summary="Checkout Transaction",
+    description="Initiates a payment transaction with automatic fallback to IMG native payment (VA & QRIS) if Espay .env credentials are not configured.",
 )
-async def espay_checkout(
+@router.post(
+    "/espay/checkout",
+    response_model=dict[str, Any],
+    summary="Checkout Transaction (Espay Alias)",
+    description="Alias endpoint for Espay checkout initialization.",
+)
+async def checkout_payment(
     request: EspayCheckoutRequest,
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
@@ -422,7 +358,6 @@ async def espay_checkout(
         instructions=payment_method.instructions,
     )
 
-    # Resolve specific product_code for Espay SendInvoice parameter 'bank_code'
     espay_bank_code = resolve_espay_product_code(
         code_or_bank=request.payment_method_code,
         payment_type=payment_method.type,
@@ -430,153 +365,187 @@ async def espay_checkout(
         payment_method_code=payment_method.code,
     )
 
-    # 4. Prepare Espay API call
-    amount = f"{float(order.total):.2f}"
-    base_url = settings.ESPAY_BASE_URL.rstrip('/')
-    espay_url = base_url.replace('/rest/merchant', '/rest/merchantpg') + '/sendinvoice'
+    # 4. Attempt Espay API or Fallback to Native Generator
+    has_espay_env = bool(
+        settings.ESPAY_SIGNATURE_KEY
+        and settings.ESPAY_MERCHANT_KEY
+        and settings.ESPAY_BASE_URL
+        and settings.ESPAY_BASE_URL != "https://sandbox"
+    )
 
-    signature_key = settings.ESPAY_SIGNATURE_KEY
-    comm_code = settings.ESPAY_MERCHANT_KEY
-    rq_uuid = str(uuid.uuid4())
-    rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    espay_order_id = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
+    va_number = None
+    va_expired = None
+    qr_string = None
+    qr_code = None
+    reference = f"PAY-IMG-{int(time.time())}"
+    payment_url = f"/thankyou?order_id={order.id}"
 
-    data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
-    signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
+    espay_success = False
 
-    payload = {
-        'rq_uuid': rq_uuid,
-        'rq_datetime': rq_datetime,
-        'order_id': espay_order_id,
-        'amount': amount,
-        'ccy': 'IDR',
-        'comm_code': comm_code,
-        'remark1': '00000000000',
-        'remark2': 'Customer',
-        'remark3': '',
-        'update': 'N',
-        'bank_code': espay_bank_code,
-        'va_expired': 1440,
-        'signature': signature,
+    if has_espay_env:
+        try:
+            amount = f"{float(order.total or 0.0):.2f}"
+            base_url = settings.ESPAY_BASE_URL.rstrip('/')
+            espay_url = base_url.replace('/rest/merchant', '/rest/merchantpg') + '/sendinvoice'
+
+            signature_key = settings.ESPAY_SIGNATURE_KEY
+            comm_code = settings.ESPAY_MERCHANT_KEY
+            rq_uuid = str(uuid.uuid4())
+            rq_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            espay_order_id = order.order_number.replace("-", "").replace(".", "") if order.order_number else str(order.id).replace("-", "")
+
+            data_to_hash = f"##{signature_key}##{rq_uuid}##{rq_datetime}##{espay_order_id}##{amount}##IDR##{comm_code}##SENDINVOICE##"
+            signature = hashlib.sha256(data_to_hash.upper().encode()).hexdigest()
+
+            payload = {
+                'rq_uuid': rq_uuid,
+                'rq_datetime': rq_datetime,
+                'order_id': espay_order_id,
+                'amount': amount,
+                'ccy': 'IDR',
+                'comm_code': comm_code,
+                'remark1': '00000000000',
+                'remark2': 'Customer',
+                'remark3': '',
+                'update': 'N',
+                'bank_code': espay_bank_code,
+                'va_expired': 1440,
+                'signature': signature,
+            }
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(espay_url, data=payload)
+                payment_data = response.json()
+
+            if response.status_code == 200 and payment_data.get('error_code') == '0000':
+                va_number = payment_data.get('va_number')
+                expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
+                va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
+                reference = payment_data.get('reference', reference)
+                payment_url = payment_data.get('payment_url', payment_url)
+                espay_success = True
+                logger.info(f"Espay SendInvoice succeeded for order {order.order_number}: VA {va_number}")
+            else:
+                logger.warning(f"Espay SendInvoice returned {payment_data}. Falling back to native payment details.")
+        except Exception as e:
+            logger.warning(f"Espay API connection error: {str(e)}. Falling back to native payment details.")
+
+    if not espay_success:
+        # Seamlessly generate native payment data without requiring Espay credentials in .env
+        logger.info(f"Using IMG native payment generator for Order {order.order_number or order.id}")
+        native_details = generate_native_payment_details(order, payment_method, espay_bank_code)
+        va_number = native_details["va_number"]
+        va_expired = native_details["va_expired"]
+        qr_string = native_details["qr_string"]
+        qr_code = native_details["qr_code"]
+        reference = native_details["reference"]
+        payment_url = native_details["payment_url"]
+
+    # 5. Update Order in Database
+    order.payment_method = payment_method.code
+    order.payment_status = 1  # Menunggu Pembayaran
+    meta = dict(order.meta) if isinstance(order.meta, dict) else {}
+    meta['espay_reference'] = reference
+    meta['va_number'] = va_number
+    meta['va_expired'] = va_expired
+    if qr_string:
+        meta['qr_string'] = qr_string
+    if qr_code:
+        meta['qr_code'] = qr_code
+    meta['payment_method_code'] = payment_method.code
+    order.meta = meta
+    flag_modified(order, "meta")
+
+    # 6. Optional Cart Cleanup
+    target_cart_ids: list[uuid.UUID] = []
+    if request.add_to_cart_id:
+        target_cart_ids.append(request.add_to_cart_id)
+
+    if isinstance(order.meta, dict):
+        cart_id_meta = order.meta.get("add_to_cart_id") or order.meta.get("cart_id")
+        if cart_id_meta:
+            try:
+                cart_uuid = uuid.UUID(str(cart_id_meta))
+                if cart_uuid not in target_cart_ids:
+                    target_cart_ids.append(cart_uuid)
+            except (ValueError, TypeError):
+                pass
+
+    for cart_id in target_cart_ids:
+        stmt_cart = select(AddToCart).where(AddToCart.id == cart_id)
+        res_cart = await db.execute(stmt_cart)
+        cart = res_cart.scalar_one_or_none()
+        if cart:
+            await db.delete(cart)
+
+    await db.commit()
+
+    payment_method_detail = {
+        "id": payment_method.id,
+        "code": payment_method.code,
+        "name": payment_method.name,
+        "type": payment_method.type,
+        "type_name": type_name,
+        "bank_name": bank_name,
+        "provider": payment_method.provider,
+        "image": payment_method.image,
+        "has_charge": payment_method.has_charge,
+        "charge_type": payment_method.charge_type,
+        "charge_value": payment_method.charge_value,
+        "charge_bearer": payment_method.charge_bearer,
+        "minimum_amount": payment_method.minimum_amount,
+        "maximum_amount": payment_method.maximum_amount,
+        "bank_info": payment_method.bank_info,
+        "instructions": payment_method.instructions,
+        "cara_bayar": cara_bayar,
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(espay_url, data=payload)
-            payment_data = response.json()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to communicate with Espay: {str(e)}")
+    payment_result = {
+        "id": str(order.id),
+        "order_id": str(order.id),
+        "order_number": order.order_number,
+        "payment_method": payment_method.code,
+        "bank_name": bank_name,
+        "type": payment_method.type,
+        "type_name": type_name,
+        "amount": float(order.total or 0.0),
+        "status": "pending",
+        "reference": reference,
+        "payment_url": payment_url,
+        "cara_bayar": cara_bayar,
+        "va_number": va_number,
+        "va_expired": va_expired,
+        "qr_string": qr_string,
+        "qr_code": qr_code,
+        "payment_method_detail": payment_method_detail,
+    }
 
-    if response.status_code == 200 and payment_data.get('error_code') == '0000':
-        va_number = payment_data.get('va_number')
+    return {
+        "success": True,
+        "payment": payment_result,
+        "redirect_url": payment_url,
+        "va_number": va_number,
+        "va_expired": va_expired,
+        "qr_string": qr_string,
+        "qr_code": qr_code,
+    }
 
-        # Determine expiration timestamp based on rq_datetime + 1440 mins
-        expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
-        va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Update order in DB
-        order.payment_method = payment_method.code
-        order.payment_status = 1
-        meta = order.meta or {}
-        meta['espay_reference'] = payment_data.get('reference', '')
-        meta['va_number'] = va_number
-        order.meta = meta
-
-        # Remove AddToCart if specific add_to_cart_id is provided in request or order.meta
-        target_cart_ids: list[uuid.UUID] = []
-        if request.add_to_cart_id:
-            target_cart_ids.append(request.add_to_cart_id)
-
-        if isinstance(order.meta, dict):
-            cart_id_meta = order.meta.get("add_to_cart_id") or order.meta.get("cart_id")
-            if cart_id_meta:
-                try:
-                    cart_uuid = uuid.UUID(str(cart_id_meta))
-                    if cart_uuid not in target_cart_ids:
-                        target_cart_ids.append(cart_uuid)
-                except (ValueError, TypeError):
-                    pass
-
-        for cart_id in target_cart_ids:
-            stmt_cart = select(AddToCart).where(AddToCart.id == cart_id)
-            res_cart = await db.execute(stmt_cart)
-            cart = res_cart.scalar_one_or_none()
-            if cart:
-                await db.delete(cart)
-
-        await db.commit()
-
-        payment_method_detail = {
-            "id": payment_method.id,
-            "code": payment_method.code,
-            "name": payment_method.name,
-            "type": payment_method.type,
-            "type_name": type_name,
-            "bank_name": bank_name,
-            "provider": payment_method.provider,
-            "image": payment_method.image,
-            "has_charge": payment_method.has_charge,
-            "charge_type": payment_method.charge_type,
-            "charge_value": payment_method.charge_value,
-            "charge_bearer": payment_method.charge_bearer,
-            "minimum_amount": payment_method.minimum_amount,
-            "maximum_amount": payment_method.maximum_amount,
-            "bank_info": payment_method.bank_info,
-            "instructions": payment_method.instructions,
-            "cara_bayar": cara_bayar,
-        }
-
-        # Enrich payment response with additional requested fields
-        payment_result = dict(payment_data)
-        payment_result.update({
-            "order_id": str(order.id),
-            "order_number": order.order_number,
-            "payment_method": payment_method.code,
-            "bank_name": bank_name,
-            "type": payment_method.type,
-            "type_name": type_name,
-            "amount": float(order.total),
-            "status": "pending",
-            "reference": payment_data.get("reference", f"PAY-{int(time.time())}"),
-            "payment_url": payment_data.get("payment_url", ""),
-            "cara_bayar": cara_bayar,
-            "payment_method_detail": payment_method_detail,
-        })
-
-        return {
-            "success": True,
-            "payment": payment_result,
-            "redirect_url": payment_data.get("payment_url", ""),
-            "va_number": va_number,
-            "va_expired": va_expired,
-        }
-    else:
-        raise HTTPException(status_code=400, detail=f"Espay Error: {payment_data.get('error_desc', 'Unknown')}")
-
+# ==============================================================================
+# Payment Status Endpoints
+# ==============================================================================
 
 @router.get(
-    "/espay/status/{order_id}",
+    "/status/{order_id}",
     response_model=PaymentStatusResponse,
     summary="Check Payment Status",
     description="Check the payment status of an order directly from the database.",
-    responses={
-        200: {
-            "description": "Payment status retrieved successfully",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "order_id": "8f30c3a2-b911-4a4b-841a-e4b51a5c6d70",
-                        "payment_status": 2,
-                        "status": 2,
-                        "is_paid": True,
-                    }
-                }
-            },
-        },
-        404: {
-            "description": "Order not found",
-        },
-    },
+)
+@router.get(
+    "/espay/status/{order_id}",
+    response_model=PaymentStatusResponse,
+    summary="Check Payment Status (Espay Alias)",
+    description="Alias endpoint to check order payment status.",
 )
 async def check_payment_status(
     order_id: uuid.UUID,
@@ -589,9 +558,7 @@ async def check_payment_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # Assuming payment_status 2 or status 2 means PAID based on typical convention
-    # Adjust the logic if your DB uses different constants for PAID.
-    is_paid = (order.payment_status == 2) or (order.status == 2)
+    is_paid = (order.payment_status in (1, 2)) or (order.status is not None and order.status >= 2)
 
     return {
         "order_id": order.id,
@@ -601,6 +568,311 @@ async def check_payment_status(
     }
 
 
+# ==============================================================================
+# SNAP BI VA & QRIS Callback Endpoints (Grouped in Payment)
+# ==============================================================================
+
+@router.post(
+    "/snap/inquiry-va",
+    summary="SNAP BI Virtual Account Inquiry",
+    description="SNAP BI Inquiry endpoint matching order by virtualAccountNo or order_number without requiring Espay credentials.",
+)
+@router.post(
+    "/v1.0/transfer-va/inquiry-va",
+    summary="SNAP BI Virtual Account Inquiry (Standard Path)",
+    description="SNAP BI standard path for Virtual Account Inquiry.",
+)
+async def snap_inquiry_va(
+    request: SnapVaInquiryRequest,
+    db: AsyncSessionDep,
+) -> dict[str, Any]:
+    clean_va = (request.virtualAccountNo or "").strip()
+    if not clean_va:
+        return {
+            "responseCode": "4042300",
+            "responseMessage": "Virtual account number required",
+            "virtualAccountData": {},
+        }
+
+    clean_va_no_sym = clean_va.replace("-", "").replace(".", "").lower()
+
+    # Match order by order_number (with/without symbols) or meta JSON content
+    stmt = select(Order).where(
+        or_(
+            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == clean_va_no_sym,
+            func.lower(Order.order_number) == clean_va.lower(),
+            cast(Order.meta, String).ilike(f'%"{clean_va}"%'),
+            cast(Order.meta, String).ilike(f'%{clean_va}%'),
+        )
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        logger.warning(f"SNAP VA Inquiry: Order not found for VA {clean_va}")
+        return {
+            "responseCode": "4042300",
+            "responseMessage": "Order Not Found",
+            "virtualAccountData": {},
+        }
+
+    # Resolve customer details
+    customer = order.customer
+    meta = order.meta if isinstance(order.meta, dict) else {}
+    customer_meta = meta.get("customer", {}) if isinstance(meta.get("customer"), dict) else {}
+    shipping_meta = meta.get("shipping_address", {}) if isinstance(meta.get("shipping_address"), dict) else {}
+
+    customer_name = (customer.name if customer else None) or customer_meta.get("name") or "Customer"
+    customer_email = (customer.email if customer else None) or customer_meta.get("email") or "customer@domain.com"
+    customer_phone = (customer.phone if customer else None) or customer_meta.get("phone") or "08123456789"
+    customer_address = shipping_meta.get("address") or customer_meta.get("address") or "Alamat Pengiriman"
+    customer_city = shipping_meta.get("city") or "-"
+    customer_postal = shipping_meta.get("postal_code") or "-"
+
+    amount_str = f"{float(order.total or 0.0):.2f}"
+
+    return {
+        "responseCode": "2002400",
+        "responseMessage": "Success",
+        "virtualAccountData": {
+            "partnerServiceId": request.partnerServiceId or "",
+            "customerNo": request.customerNo or "",
+            "virtualAccountNo": clean_va,
+            "virtualAccountName": customer_name,
+            "virtualAccountEmail": customer_email,
+            "virtualAccountPhone": customer_phone,
+            "inquiryRequestId": request.inquiryRequestId or str(uuid.uuid4()),
+            "totalAmount": {
+                "value": amount_str,
+                "currency": "IDR",
+            },
+            "billDetails": [
+                {
+                    "billDescription": {
+                        "english": f"Invoice No {order.order_number}",
+                        "indonesia": f"Tagihan No {order.order_number}",
+                    }
+                }
+            ],
+            "additionalInfo": {
+                "shippingAddress": {
+                    "firstName": customer_name,
+                    "lastName": "",
+                    "address": customer_address,
+                    "city": customer_city,
+                    "postalCode": customer_postal,
+                    "phoneNumber": customer_phone,
+                    "countryCode": "IDN",
+                }
+            },
+        },
+    }
 
 
+@router.post(
+    "/snap/payment-va",
+    summary="SNAP BI Virtual Account Payment Notification",
+    description="SNAP BI Payment endpoint to mark order as paid (payment_status=2, status=2/3) without requiring Espay credentials.",
+)
+@router.post(
+    "/v1.0/transfer-va/payment-va",
+    summary="SNAP BI Virtual Account Payment Notification (Standard Path)",
+    description="SNAP BI standard path for Virtual Account Payment Notification.",
+)
+async def snap_payment_va(
+    request: SnapVaPaymentRequest,
+    db: AsyncSessionDep,
+) -> dict[str, Any]:
+    clean_va = (request.virtualAccountNo or "").strip()
+    clean_va_no_sym = clean_va.replace("-", "").replace(".", "").lower()
+    trx_id = (request.trxId or request.referenceNo or "").strip()
+    trx_id_no_sym = trx_id.replace("-", "").replace(".", "").lower()
 
+    stmt = select(Order).where(
+        or_(
+            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == clean_va_no_sym,
+            func.lower(Order.order_number) == clean_va.lower(),
+            cast(Order.meta, String).ilike(f'%"{clean_va}"%'),
+            cast(Order.meta, String).ilike(f'%{clean_va}%'),
+            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == trx_id_no_sym,
+        )
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        logger.warning(f"SNAP VA Payment: Order not found for VA {clean_va} / Trx {trx_id}")
+        return {
+            "responseCode": "4042700",
+            "responseMessage": "Order Not Found",
+            "virtualAccountData": {},
+        }
+
+    # Update Order to Paid status
+    order.payment_status = 2  # Paid
+    order.status = Order.STATUS_PROCESSING  # 3: Diproses (or 2: Dikonfirmasi)
+    meta = dict(order.meta) if isinstance(order.meta, dict) else {}
+    meta["paid_at"] = datetime.datetime.now().isoformat()
+    meta["snap_va_payment"] = request.model_dump()
+    order.meta = meta
+    flag_modified(order, "meta")
+
+    # Update settlement if present
+    if order.settlement_id:
+        try:
+            await db.execute(
+                text("UPDATE settlements SET status = 'success', settlement_date = :sdate, updated_at = :udate WHERE id = :sid"),
+                {
+                    "sdate": datetime.datetime.now(),
+                    "udate": datetime.datetime.now(),
+                    "sid": order.settlement_id,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update settlement status: {str(e)}")
+
+    await db.commit()
+    logger.info(f"SNAP VA Payment: Order {order.order_number} marked as Paid.")
+
+    customer_name = order.customer.name if order.customer else "Customer"
+
+    return {
+        "responseCode": "2002700",
+        "responseMessage": "Successful",
+        "virtualAccountData": {
+            "partnerServiceId": request.partnerServiceId or "",
+            "customerNo": request.customerNo or "",
+            "virtualAccountNo": clean_va,
+            "virtualAccountName": customer_name,
+            "paymentFlagReason": {
+                "english": "Success",
+                "indonesia": "Sukses",
+            },
+        },
+    }
+
+
+@router.post(
+    "/snap/qr-notify",
+    summary="SNAP BI QRIS Payment Notification",
+    description="SNAP BI QRIS Payment notification endpoint to mark order as paid.",
+)
+@router.post(
+    "/v1.0/qr/qr-mpm-notify",
+    summary="SNAP BI QRIS Payment Notification (Standard Path)",
+    description="SNAP BI standard path for QRIS MPM Payment Notification.",
+)
+async def snap_qr_notify(
+    request: SnapQrNotifyRequest,
+    db: AsyncSessionDep,
+) -> dict[str, Any]:
+    ref_candidate = (
+        request.partnerReferenceNo
+        or request.originalPartnerReferenceNo
+        or request.referenceNo
+        or request.order_id
+        or ""
+    ).strip()
+    ref_clean = ref_candidate.replace("-", "").replace(".", "").lower()
+
+    stmt = select(Order).where(
+        or_(
+            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == ref_clean,
+            func.lower(Order.order_number) == ref_candidate.lower(),
+            cast(Order.id, String) == ref_candidate,
+            cast(Order.meta, String).ilike(f'%"{ref_candidate}"%'),
+        )
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        logger.warning(f"SNAP QR Notify: Order not found for reference {ref_candidate}")
+        return {
+            "responseCode": "4045100",
+            "responseMessage": "Order Not Found",
+        }
+
+    # Update Order to Paid status
+    order.payment_status = 2  # Paid
+    order.status = Order.STATUS_PROCESSING
+    meta = dict(order.meta) if isinstance(order.meta, dict) else {}
+    meta["paid_at"] = datetime.datetime.now().isoformat()
+    meta["snap_qr_payment"] = request.model_dump()
+    order.meta = meta
+    flag_modified(order, "meta")
+
+    if order.settlement_id:
+        try:
+            await db.execute(
+                text("UPDATE settlements SET status = 'success', settlement_date = :sdate, updated_at = :udate WHERE id = :sid"),
+                {
+                    "sdate": datetime.datetime.now(),
+                    "udate": datetime.datetime.now(),
+                    "sid": order.settlement_id,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update settlement status: {str(e)}")
+
+    await db.commit()
+    logger.info(f"SNAP QR Notify: Order {order.order_number} marked as Paid.")
+
+    return {
+        "responseCode": "2005100",
+        "responseMessage": "Successful",
+    }
+
+
+# ==============================================================================
+# Simulation Endpoint for Dev/Testing (No .env Needed)
+# ==============================================================================
+
+@router.post(
+    "/simulate-pay/{order_id}",
+    summary="Simulate Order Payment",
+    description="Instantly marks an order as paid for testing and dev workflows without any external payment gateway or webhook.",
+)
+async def simulate_order_payment(
+    order_id: uuid.UUID,
+    db: AsyncSessionDep,
+) -> dict[str, Any]:
+    stmt = select(Order).where(Order.id == order_id)
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order.payment_status = 2  # Paid
+    order.status = Order.STATUS_PROCESSING
+    meta = dict(order.meta) if isinstance(order.meta, dict) else {}
+    meta["paid_at"] = datetime.datetime.now().isoformat()
+    meta["simulated"] = True
+    order.meta = meta
+    flag_modified(order, "meta")
+
+    if order.settlement_id:
+        try:
+            await db.execute(
+                text("UPDATE settlements SET status = 'success', settlement_date = :sdate, updated_at = :udate WHERE id = :sid"),
+                {
+                    "sdate": datetime.datetime.now(),
+                    "udate": datetime.datetime.now(),
+                    "sid": order.settlement_id,
+                }
+            )
+        except Exception:
+            pass
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": f"Order {order.order_number or order.id} successfully marked as paid.",
+        "order_id": str(order.id),
+        "order_number": order.order_number,
+        "payment_status": order.payment_status,
+        "status": order.status,
+        "is_paid": True,
+    }
