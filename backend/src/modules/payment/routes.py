@@ -1,4 +1,4 @@
-from typing import Any, Annotated
+from typing import Any
 import uuid
 import hashlib
 import time
@@ -6,11 +6,10 @@ import datetime
 import urllib.parse
 import random
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func, String, cast, or_, text
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.config.settings import settings
 from ...infrastructure.dependencies import AsyncSessionDep
@@ -36,25 +35,25 @@ router = APIRouter(prefix="/payment", tags=["Payment"])
 class PaymentStatusResponse(BaseModel):
     order_id: uuid.UUID = Field(..., example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     payment_status: int | None = Field(..., example=2)
-    status: int = Field(..., example=2)
+    status: int = Field(..., example=3)
     is_paid: bool = Field(..., example=True)
 
 
 class EspayCheckoutRequest(BaseModel):
     order_id: uuid.UUID = Field(..., example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
-    payment_method_code: str = Field(..., example="BCAATM")
+    payment_method_code: str = Field(..., example="QRISPLUS", description="Payment method code, e.g. QRISPLUS, CREDITCARD, DEBITCARD")
     add_to_cart_id: uuid.UUID | None = Field(None, example="323e4567-e89b-12d3-a456-426614174002", description="Optional AddToCart ID to delete upon checkout")
 
 
 class PaymentMethodDetail(BaseModel):
     id: uuid.UUID | str | None = Field(None, example="019f5933-08c8-7082-b1cd-7185cff32192")
-    code: str = Field(..., example="BCAATM")
-    name: str = Field(..., example="BCA Virtual Account")
-    type: int | None = Field(None, example=2)
-    type_name: str | None = Field(None, example="Virtual Account")
-    bank_name: str | None = Field(None, example="BCA")
-    provider: str | None = Field(None, example="Espay")
-    image: str | None = Field(None, example="https://example.com/bca.png")
+    code: str = Field(..., example="QRISPLUS")
+    name: str = Field(..., example="Qris Plus")
+    type: int | None = Field(None, example=4)
+    type_name: str | None = Field(None, example="QRIS")
+    bank_name: str | None = Field(None, example="Qris Plus")
+    provider: str | None = Field(None, example="espay")
+    image: str | None = Field(None, example="https://example.com/qris.png")
     has_charge: bool = Field(False, example=False)
     charge_type: int | None = Field(None, example=1)
     charge_value: float | None = Field(0.0, example=0.0)
@@ -70,14 +69,18 @@ class EspayPaymentData(BaseModel):
     id: str | None = Field(None, example="1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p6")
     order_id: str = Field(..., example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     order_number: str | None = Field(None, example="ORD-20260828-001")
-    payment_method: str = Field(..., example="BCAATM")
-    bank_name: str | None = Field(None, example="BCA")
-    type: int | None = Field(None, example=2)
-    type_name: str | None = Field(None, example="Virtual Account")
+    payment_method: str = Field(..., example="QRISPLUS")
+    bank_name: str | None = Field(None, example="Qris Plus")
+    type: int | None = Field(None, example=4)
+    type_name: str | None = Field(None, example="QRIS")
     amount: float = Field(..., example=2500000.00)
     status: str = Field(..., example="pending")
-    reference: str = Field(..., example="PAY-1724808000")
-    payment_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM")
+    reference: str = Field(..., example="QRIS-IMG-1724808000")
+    payment_url: str = Field(..., example="/thankyou?order_id=8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
+    qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
+    qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
+    va_number: str | None = Field(None, example=None)
+    va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
     cara_bayar: list[str] | None = Field(None)
     payment_method_detail: PaymentMethodDetail | None = Field(None)
 
@@ -85,51 +88,44 @@ class EspayPaymentData(BaseModel):
 class EspayCheckoutResponse(BaseModel):
     success: bool = Field(..., example=True)
     payment: dict[str, Any] | EspayPaymentData
-    redirect_url: str = Field(..., example="https://sandbox-api.espay.id/checkout/ORD-20260828-001?bank=BCAATM")
-    va_number: str | None = Field(None, example="1234567890123456")
-    va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
+    redirect_url: str = Field(..., example="/thankyou?order_id=8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
     qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
+    va_number: str | None = Field(None, example=None)
+    va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
 
 
-# SNAP BI Schemas
+# Notification Schemas (QRIS & Cards)
 class SnapAmount(BaseModel):
     value: str = Field(..., example="2500000.00")
     currency: str = Field("IDR", example="IDR")
 
 
-class SnapVaInquiryRequest(BaseModel):
-    partnerServiceId: str | None = Field(None, example="8808")
-    customerNo: str | None = Field(None, example="0001")
-    virtualAccountNo: str | None = Field(None, example="88080001")
-    inquiryRequestId: str | None = Field(None, example="c3b9b4f0-4567-4a8b-9456-123456789abc")
-    additionalInfo: dict[str, Any] | None = None
-
-
-class SnapVaPaymentRequest(BaseModel):
-    partnerServiceId: str | None = Field(None, example="8808")
-    customerNo: str | None = Field(None, example="0001")
-    virtualAccountNo: str | None = Field(None, example="88080001")
-    inquiryRequestId: str | None = None
-    paymentRequestId: str | None = None
-    paidAmount: SnapAmount | dict[str, Any] | None = None
-    trxId: str | None = None
-    referenceNo: str | None = None
-    additionalInfo: dict[str, Any] | None = None
-
-
-class SnapQrNotifyRequest(BaseModel):
+class QrisNotifyRequest(BaseModel):
     partnerReferenceNo: str | None = Field(None, example="ORD-20260828-001")
     originalPartnerReferenceNo: str | None = None
     referenceNo: str | None = None
-    externalStoreId: str | None = None
     order_id: str | None = None
     amount: SnapAmount | dict[str, Any] | None = None
     additionalInfo: dict[str, Any] | None = None
 
 
+class CardNotifyRequest(BaseModel):
+    order_id: str | None = Field(None, example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
+    order_number: str | None = Field(None, example="ORD.20261008.0006")
+    transaction_id: str | None = Field(None, example="TRX-CC-1724808000")
+    reference_no: str | None = None
+    masked_card: str | None = Field(None, example="411111******1111")
+    card_type: str | None = Field(None, example="CREDIT", description="CREDIT or DEBIT")
+    bank: str | None = Field(None, example="BCA")
+    approval_code: str | None = Field(None, example="123456")
+    status: str | None = Field(None, example="SUCCESS")
+    amount: float | str | None = None
+    additional_info: dict[str, Any] | None = None
+
+
 # ==============================================================================
-# Helper Functions
+# Helpers
 # ==============================================================================
 
 def resolve_espay_product_code(
@@ -138,9 +134,7 @@ def resolve_espay_product_code(
     bank_info: dict[str, Any] | None = None,
     payment_method_code: str | None = None,
 ) -> str:
-    """
-    Resolves Espay product code when multiple payment methods share the same clearing bank code (e.g. '014').
-    """
+    """Resolves Espay product code for QRIS, Credit Card, Debit Card, etc."""
     if bank_info and isinstance(bank_info, dict):
         p_code = bank_info.get("product_code")
         if p_code and str(p_code).strip() and not str(p_code).strip().isdigit():
@@ -153,46 +147,16 @@ def resolve_espay_product_code(
     bank_code = (code_or_bank or (bank_info.get("bank_code") if isinstance(bank_info, dict) else "") or "").strip()
 
     BANK_PRODUCT_MAP: dict[str, dict[Any, str]] = {
+        "008": {
+            4: "QRISPLUS",
+            5: "CREDITCARD",
+            6: "DEBITCARD",
+            "default": "QRISPLUS",
+        },
         "014": {
             5: "CREDITCARD",
-            2: "BCAATM",
-            3: "GOPAYINAPP",
+            6: "DEBITCARD",
             "default": "BCAATM",
-        },
-        "008": {
-            5: "CREDITCARD",
-            2: "MANDIRIATM",
-            3: "QRISPLUS",
-            4: "QRISPLUS",
-            "default": "MANDIRIATM",
-        },
-        "002": {
-            5: "CREDITCARD",
-            2: "BRIATM",
-            "default": "BRIATM",
-        },
-        "022": {
-            5: "CREDITCARD",
-            2: "CIMBATM",
-            "default": "CIMBATM",
-        },
-        "011": {
-            5: "CREDITCARD",
-            2: "DANAMONATM",
-            "default": "DANAMONATM",
-        },
-        "016": {
-            5: "CREDITCARD",
-            2: "BIIATM",
-            "default": "BIIATM",
-        },
-        "472": {
-            2: "BANKSAQUATM",
-            "default": "BANKSAQUATM",
-        },
-        "503": {
-            3: "OVO",
-            "default": "OVO",
         },
     }
 
@@ -205,59 +169,84 @@ def resolve_espay_product_code(
     return candidate or bank_code
 
 
+def get_default_instructions_for_method(code_upper: str, pm_type: int | None) -> list[str]:
+    """Default instructions tailored for QRIS, Credit Card, and Debit Card."""
+    if pm_type == 4 or "QRIS" in code_upper:
+        return [
+            "Buka aplikasi Mobile Banking atau E-Wallet (BCA Mobile, Livin, GoPay, OVO, Dana, ShopeePay, dll).",
+            "Pilih menu 'Scan QR' atau 'Bayar dengan QRIS'.",
+            "Arahkan kamera ke kode QRIS di atas atau unggah gambar QRIS yang telah diunduh.",
+            "Periksa detail merchant dan pastikan total tagihan sesuai.",
+            "Masukkan PIN transaksi Anda untuk menyelesaikan pembayaran.",
+            "Pembayaran akan otomatis terkonfirmasi secara instan.",
+        ]
+    elif pm_type == 5 or "CREDIT" in code_upper:
+        return [
+            "Masukkan 16 digit Nomor Kartu Kredit Visa / Mastercard / JCB Anda.",
+            "Masukkan Masa Berlaku kartu (Bulan dan Tahun / MM/YY).",
+            "Masukkan 3 digit kode keamanan CVV/CVC yang tertera di bagian belakang kartu.",
+            "Klik tombol Bayar Sekarang untuk memproses verifikasi 3D Secure.",
+            "Masukkan kode OTP yang dikirimkan oleh bank melalui SMS ke nomor handphone Anda.",
+            "Transaksi selesai setelah proses otorisasi berhasil.",
+        ]
+    elif pm_type == 6 or "DEBIT" in code_upper:
+        return [
+            "Pastikan fitur Transaksi Debit Online / E-Commerce kartu debit Anda telah aktif via Mobile Banking.",
+            "Masukkan 16 digit Nomor Kartu Debit Anda.",
+            "Masukkan Masa Berlaku kartu (MM/YY) dan 3 digit CVV di belakang kartu.",
+            "Klik tombol Bayar Sekarang.",
+            "Masukkan kode verifikasi OTP yang dikirimkan oleh bank melalui SMS.",
+            "Pembayaran selesai secara langsung setelah verifikasi kode OTP berhasil.",
+        ]
+    return [
+        "Selesaikan pembayaran sesuai metode yang dipilih.",
+        "Simpan bukti pembayaran Anda.",
+    ]
+
+
 def generate_native_payment_details(
     order: Order,
     payment_method: PaymentMethod,
     bank_code: str,
 ) -> dict[str, Any]:
     """
-    Generates native payment details (VA Number, QRIS, Reference) autonomously
+    Generates native payment details for QRIS, Debit Card, Credit Card, and others
     without requiring external Espay credentials in .env.
     """
     code_upper = (payment_method.code or "").upper()
-    bank_code_str = str(bank_code).upper()
+    pm_type = payment_method.type
+    clean_order_ref = (order.order_number or str(order.id)[:8]).replace("-", "").replace(".", "")
 
-    # Determine bank VA prefix
-    if "BCA" in code_upper or bank_code_str == "014":
-        va_prefix = "8808"
-    elif "MANDIRI" in code_upper or bank_code_str == "008":
-        va_prefix = "89508"
-    elif "BRI" in code_upper or bank_code_str == "002":
-        va_prefix = "12345"
-    elif "BNI" in code_upper or bank_code_str == "009":
-        va_prefix = "988"
-    elif "PERMATA" in code_upper or bank_code_str == "013":
-        va_prefix = "8422"
-    elif "CIMB" in code_upper or bank_code_str == "022":
-        va_prefix = "118"
-    elif "DANAMON" in code_upper or bank_code_str == "011":
-        va_prefix = "8888"
-    elif "SAQU" in code_upper or bank_code_str == "472":
-        va_prefix = "472"
-    else:
-        va_prefix = "88"
-
-    # Extract digits from order number or id
-    order_digits = "".join([c for c in (order.order_number or str(order.id)) if c.isdigit()])
-    if len(order_digits) < 6:
-        order_digits = f"{order_digits}{random.randint(100000, 999999)}"
-    va_number = f"{va_prefix}{order_digits[-8:]}"
-
-    # Expiry 24h
     now = datetime.datetime.now()
     va_expired = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Generate QRIS details if QRIS payment method
-    is_qris = (payment_method.type == 4) or ("QRIS" in code_upper)
     qr_string = None
     qr_code = None
+    va_number = None
+
+    is_qris = (pm_type == 4) or ("QRIS" in code_upper)
+    is_credit_card = (pm_type == 5) or ("CREDIT" in code_upper)
+    is_debit_card = (pm_type == 6) or ("DEBIT" in code_upper)
+
     if is_qris:
-        clean_order_ref = (order.order_number or str(order.id)[:8]).replace("-", "").replace(".", "")
         qr_string = f"ID.CO.QRIS.IMG.{clean_order_ref}.{round(float(order.total or 0))}"
         qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
-
-    reference = f"PAY-IMG-{int(time.time())}"
-    payment_url = f"/thankyou?order_id={order.id}"
+        reference = f"QRIS-IMG-{int(time.time())}"
+        payment_url = f"/thankyou?order_id={order.id}"
+    elif is_credit_card:
+        reference = f"CC-IMG-{int(time.time())}"
+        payment_url = f"/checkout/card-pay?order_id={order.id}&method=credit_card"
+    elif is_debit_card:
+        reference = f"DC-IMG-{int(time.time())}"
+        payment_url = f"/checkout/card-pay?order_id={order.id}&method=debit_card"
+    else:
+        # Fallback for other methods
+        order_digits = "".join([c for c in clean_order_ref if c.isdigit()])
+        if len(order_digits) < 6:
+            order_digits = f"{order_digits}{random.randint(100000, 999999)}"
+        va_number = f"88{order_digits[-8:]}"
+        reference = f"PAY-IMG-{int(time.time())}"
+        payment_url = f"/thankyou?order_id={order.id}"
 
     return {
         "va_number": va_number,
@@ -270,20 +259,20 @@ def generate_native_payment_details(
 
 
 # ==============================================================================
-# Payment Checkout Endpoints
+# Checkout Endpoints
 # ==============================================================================
 
 @router.post(
     "/checkout",
     response_model=dict[str, Any],
-    summary="Checkout Transaction",
-    description="Initiates a payment transaction with automatic fallback to IMG native payment (VA & QRIS) if Espay .env credentials are not configured.",
+    summary="Checkout Payment (QRIS, Debit, Credit Card)",
+    description="Initiates payment checkout focusing on QRIS, Debit Card, and Credit Card with autonomous fallback if Espay .env is not configured.",
 )
 @router.post(
     "/espay/checkout",
     response_model=dict[str, Any],
-    summary="Checkout Transaction (Espay Alias)",
-    description="Alias endpoint for Espay checkout initialization.",
+    summary="Checkout Payment (Alias)",
+    description="Alias endpoint for checkout initialization.",
 )
 async def checkout_payment(
     request: EspayCheckoutRequest,
@@ -297,7 +286,7 @@ async def checkout_payment(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # 2. Fetch Payment Method by code (with escalation for numeric clearing codes like 014)
+    # 2. Fetch Payment Method
     pm_code_input = request.payment_method_code.strip()
     pm_stmt = select(PaymentMethod).where(
         func.upper(PaymentMethod.code) == pm_code_input.upper(),
@@ -307,7 +296,6 @@ async def checkout_payment(
     payment_method = pm_result.scalar_one_or_none()
 
     if not payment_method:
-        # Escalation: try resolved product code (e.g. 014 -> BCAATM)
         escalated_code = resolve_espay_product_code(pm_code_input)
         if escalated_code != pm_code_input:
             pm_stmt_esc = select(PaymentMethod).where(
@@ -318,7 +306,6 @@ async def checkout_payment(
             payment_method = pm_result_esc.scalar_one_or_none()
 
     if not payment_method:
-        # Check in bank_info JSON field (product_code or bank_code)
         pm_stmt_json = select(PaymentMethod).where(
             PaymentMethod.deleted == False,
             or_(
@@ -342,7 +329,7 @@ async def checkout_payment(
             detail=f"Payment method '{request.payment_method_code}' not found",
         )
 
-    # 3. Resolve details (bank_name, bank_code, type_name, cara_bayar)
+    # 3. Resolve details & instructions
     bank_info = payment_method.bank_info if isinstance(payment_method.bank_info, dict) else {}
     bank_name = (
         bank_info.get("bank_name")
@@ -357,6 +344,8 @@ async def checkout_payment(
         bank_name=bank_name,
         instructions=payment_method.instructions,
     )
+    if not cara_bayar or len(cara_bayar) == 0:
+        cara_bayar = get_default_instructions_for_method(payment_method.code, payment_method.type)
 
     espay_bank_code = resolve_espay_product_code(
         code_or_bank=request.payment_method_code,
@@ -365,7 +354,7 @@ async def checkout_payment(
         payment_method_code=payment_method.code,
     )
 
-    # 4. Attempt Espay API or Fallback to Native Generator
+    # 4. Check Espay Credentials or Generate Native Details
     has_espay_env = bool(
         settings.ESPAY_SIGNATURE_KEY
         and settings.ESPAY_MERCHANT_KEY
@@ -379,7 +368,6 @@ async def checkout_payment(
     qr_code = None
     reference = f"PAY-IMG-{int(time.time())}"
     payment_url = f"/thankyou?order_id={order.id}"
-
     espay_success = False
 
     if has_espay_env:
@@ -424,15 +412,14 @@ async def checkout_payment(
                 reference = payment_data.get('reference', reference)
                 payment_url = payment_data.get('payment_url', payment_url)
                 espay_success = True
-                logger.info(f"Espay SendInvoice succeeded for order {order.order_number}: VA {va_number}")
+                logger.info(f"Espay SendInvoice succeeded for order {order.order_number}")
             else:
-                logger.warning(f"Espay SendInvoice returned {payment_data}. Falling back to native payment details.")
+                logger.warning(f"Espay SendInvoice unfulfilled. Falling back to native payment generator.")
         except Exception as e:
-            logger.warning(f"Espay API connection error: {str(e)}. Falling back to native payment details.")
+            logger.warning(f"Espay API connection exception: {str(e)}. Falling back to native payment generator.")
 
     if not espay_success:
-        # Seamlessly generate native payment data without requiring Espay credentials in .env
-        logger.info(f"Using IMG native payment generator for Order {order.order_number or order.id}")
+        logger.info(f"Using IMG native payment generator for {payment_method.code} (Order {order.order_number or order.id})")
         native_details = generate_native_payment_details(order, payment_method, espay_bank_code)
         va_number = native_details["va_number"]
         va_expired = native_details["va_expired"]
@@ -441,22 +428,23 @@ async def checkout_payment(
         reference = native_details["reference"]
         payment_url = native_details["payment_url"]
 
-    # 5. Update Order in Database
+    # 5. Update Order in DB
     order.payment_method = payment_method.code
-    order.payment_status = 1  # Menunggu Pembayaran
+    order.payment_status = 1  # Pending
     meta = dict(order.meta) if isinstance(order.meta, dict) else {}
     meta['espay_reference'] = reference
-    meta['va_number'] = va_number
-    meta['va_expired'] = va_expired
+    meta['payment_method_code'] = payment_method.code
+    meta['payment_method_type'] = payment_method.type
+    if va_number:
+        meta['va_number'] = va_number
+        meta['va_expired'] = va_expired
     if qr_string:
         meta['qr_string'] = qr_string
-    if qr_code:
         meta['qr_code'] = qr_code
-    meta['payment_method_code'] = payment_method.code
     order.meta = meta
     flag_modified(order, "meta")
 
-    # 6. Optional Cart Cleanup
+    # 6. Clean up AddToCart if requested
     target_cart_ids: list[uuid.UUID] = []
     if request.add_to_cart_id:
         target_cart_ids.append(request.add_to_cart_id)
@@ -513,10 +501,10 @@ async def checkout_payment(
         "reference": reference,
         "payment_url": payment_url,
         "cara_bayar": cara_bayar,
-        "va_number": va_number,
-        "va_expired": va_expired,
         "qr_string": qr_string,
         "qr_code": qr_code,
+        "va_number": va_number,
+        "va_expired": va_expired,
         "payment_method_detail": payment_method_detail,
     }
 
@@ -524,10 +512,10 @@ async def checkout_payment(
         "success": True,
         "payment": payment_result,
         "redirect_url": payment_url,
-        "va_number": va_number,
-        "va_expired": va_expired,
         "qr_string": qr_string,
         "qr_code": qr_code,
+        "va_number": va_number,
+        "va_expired": va_expired,
     }
 
 
@@ -544,7 +532,7 @@ async def checkout_payment(
 @router.get(
     "/espay/status/{order_id}",
     response_model=PaymentStatusResponse,
-    summary="Check Payment Status (Espay Alias)",
+    summary="Check Payment Status (Alias)",
     description="Alias endpoint to check order payment status.",
 )
 async def check_payment_status(
@@ -569,201 +557,26 @@ async def check_payment_status(
 
 
 # ==============================================================================
-# SNAP BI VA & QRIS Callback Endpoints (Grouped in Payment)
+# QRIS Callback & Webhook Endpoints
 # ==============================================================================
 
 @router.post(
-    "/snap/inquiry-va",
-    summary="SNAP BI Virtual Account Inquiry",
-    description="SNAP BI Inquiry endpoint matching order by virtualAccountNo or order_number without requiring Espay credentials.",
+    "/qris/notify",
+    summary="QRIS Payment Notification",
+    description="Callback/webhook endpoint for QRIS payment completion.",
 )
-@router.post(
-    "/v1.0/transfer-va/inquiry-va",
-    summary="SNAP BI Virtual Account Inquiry (Standard Path)",
-    description="SNAP BI standard path for Virtual Account Inquiry.",
-)
-async def snap_inquiry_va(
-    request: SnapVaInquiryRequest,
-    db: AsyncSessionDep,
-) -> dict[str, Any]:
-    clean_va = (request.virtualAccountNo or "").strip()
-    if not clean_va:
-        return {
-            "responseCode": "4042300",
-            "responseMessage": "Virtual account number required",
-            "virtualAccountData": {},
-        }
-
-    clean_va_no_sym = clean_va.replace("-", "").replace(".", "").lower()
-
-    # Match order by order_number (with/without symbols) or meta JSON content
-    stmt = select(Order).where(
-        or_(
-            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == clean_va_no_sym,
-            func.lower(Order.order_number) == clean_va.lower(),
-            cast(Order.meta, String).ilike(f'%"{clean_va}"%'),
-            cast(Order.meta, String).ilike(f'%{clean_va}%'),
-        )
-    )
-    result = await db.execute(stmt)
-    order = result.scalar_one_or_none()
-
-    if not order:
-        logger.warning(f"SNAP VA Inquiry: Order not found for VA {clean_va}")
-        return {
-            "responseCode": "4042300",
-            "responseMessage": "Order Not Found",
-            "virtualAccountData": {},
-        }
-
-    # Resolve customer details
-    customer = order.customer
-    meta = order.meta if isinstance(order.meta, dict) else {}
-    customer_meta = meta.get("customer", {}) if isinstance(meta.get("customer"), dict) else {}
-    shipping_meta = meta.get("shipping_address", {}) if isinstance(meta.get("shipping_address"), dict) else {}
-
-    customer_name = (customer.name if customer else None) or customer_meta.get("name") or "Customer"
-    customer_email = (customer.email if customer else None) or customer_meta.get("email") or "customer@domain.com"
-    customer_phone = (customer.phone if customer else None) or customer_meta.get("phone") or "08123456789"
-    customer_address = shipping_meta.get("address") or customer_meta.get("address") or "Alamat Pengiriman"
-    customer_city = shipping_meta.get("city") or "-"
-    customer_postal = shipping_meta.get("postal_code") or "-"
-
-    amount_str = f"{float(order.total or 0.0):.2f}"
-
-    return {
-        "responseCode": "2002400",
-        "responseMessage": "Success",
-        "virtualAccountData": {
-            "partnerServiceId": request.partnerServiceId or "",
-            "customerNo": request.customerNo or "",
-            "virtualAccountNo": clean_va,
-            "virtualAccountName": customer_name,
-            "virtualAccountEmail": customer_email,
-            "virtualAccountPhone": customer_phone,
-            "inquiryRequestId": request.inquiryRequestId or str(uuid.uuid4()),
-            "totalAmount": {
-                "value": amount_str,
-                "currency": "IDR",
-            },
-            "billDetails": [
-                {
-                    "billDescription": {
-                        "english": f"Invoice No {order.order_number}",
-                        "indonesia": f"Tagihan No {order.order_number}",
-                    }
-                }
-            ],
-            "additionalInfo": {
-                "shippingAddress": {
-                    "firstName": customer_name,
-                    "lastName": "",
-                    "address": customer_address,
-                    "city": customer_city,
-                    "postalCode": customer_postal,
-                    "phoneNumber": customer_phone,
-                    "countryCode": "IDN",
-                }
-            },
-        },
-    }
-
-
-@router.post(
-    "/snap/payment-va",
-    summary="SNAP BI Virtual Account Payment Notification",
-    description="SNAP BI Payment endpoint to mark order as paid (payment_status=2, status=2/3) without requiring Espay credentials.",
-)
-@router.post(
-    "/v1.0/transfer-va/payment-va",
-    summary="SNAP BI Virtual Account Payment Notification (Standard Path)",
-    description="SNAP BI standard path for Virtual Account Payment Notification.",
-)
-async def snap_payment_va(
-    request: SnapVaPaymentRequest,
-    db: AsyncSessionDep,
-) -> dict[str, Any]:
-    clean_va = (request.virtualAccountNo or "").strip()
-    clean_va_no_sym = clean_va.replace("-", "").replace(".", "").lower()
-    trx_id = (request.trxId or request.referenceNo or "").strip()
-    trx_id_no_sym = trx_id.replace("-", "").replace(".", "").lower()
-
-    stmt = select(Order).where(
-        or_(
-            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == clean_va_no_sym,
-            func.lower(Order.order_number) == clean_va.lower(),
-            cast(Order.meta, String).ilike(f'%"{clean_va}"%'),
-            cast(Order.meta, String).ilike(f'%{clean_va}%'),
-            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == trx_id_no_sym,
-        )
-    )
-    result = await db.execute(stmt)
-    order = result.scalar_one_or_none()
-
-    if not order:
-        logger.warning(f"SNAP VA Payment: Order not found for VA {clean_va} / Trx {trx_id}")
-        return {
-            "responseCode": "4042700",
-            "responseMessage": "Order Not Found",
-            "virtualAccountData": {},
-        }
-
-    # Update Order to Paid status
-    order.payment_status = 2  # Paid
-    order.status = Order.STATUS_PROCESSING  # 3: Diproses (or 2: Dikonfirmasi)
-    meta = dict(order.meta) if isinstance(order.meta, dict) else {}
-    meta["paid_at"] = datetime.datetime.now().isoformat()
-    meta["snap_va_payment"] = request.model_dump()
-    order.meta = meta
-    flag_modified(order, "meta")
-
-    # Update settlement if present
-    if order.settlement_id:
-        try:
-            await db.execute(
-                text("UPDATE settlements SET status = 'success', settlement_date = :sdate, updated_at = :udate WHERE id = :sid"),
-                {
-                    "sdate": datetime.datetime.now(),
-                    "udate": datetime.datetime.now(),
-                    "sid": order.settlement_id,
-                }
-            )
-        except Exception as e:
-            logger.warning(f"Failed to update settlement status: {str(e)}")
-
-    await db.commit()
-    logger.info(f"SNAP VA Payment: Order {order.order_number} marked as Paid.")
-
-    customer_name = order.customer.name if order.customer else "Customer"
-
-    return {
-        "responseCode": "2002700",
-        "responseMessage": "Successful",
-        "virtualAccountData": {
-            "partnerServiceId": request.partnerServiceId or "",
-            "customerNo": request.customerNo or "",
-            "virtualAccountNo": clean_va,
-            "virtualAccountName": customer_name,
-            "paymentFlagReason": {
-                "english": "Success",
-                "indonesia": "Sukses",
-            },
-        },
-    }
-
-
 @router.post(
     "/snap/qr-notify",
-    summary="SNAP BI QRIS Payment Notification",
-    description="SNAP BI QRIS Payment notification endpoint to mark order as paid.",
+    summary="QRIS Payment Notification (SNAP Path)",
+    description="SNAP BI path for QRIS payment completion.",
 )
 @router.post(
     "/v1.0/qr/qr-mpm-notify",
-    summary="SNAP BI QRIS Payment Notification (Standard Path)",
-    description="SNAP BI standard path for QRIS MPM Payment Notification.",
+    summary="QRIS Payment Notification (BI Standard Path)",
+    description="Bank Indonesia SNAP QR MPM payment notification.",
 )
-async def snap_qr_notify(
-    request: SnapQrNotifyRequest,
+async def qris_payment_notification(
+    request: QrisNotifyRequest,
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
     ref_candidate = (
@@ -787,18 +600,18 @@ async def snap_qr_notify(
     order = result.scalar_one_or_none()
 
     if not order:
-        logger.warning(f"SNAP QR Notify: Order not found for reference {ref_candidate}")
+        logger.warning(f"QRIS Notification: Order not found for reference '{ref_candidate}'")
         return {
             "responseCode": "4045100",
             "responseMessage": "Order Not Found",
         }
 
-    # Update Order to Paid status
+    # Mark as Paid
     order.payment_status = 2  # Paid
-    order.status = Order.STATUS_PROCESSING
+    order.status = Order.STATUS_PROCESSING  # 3: Diproses
     meta = dict(order.meta) if isinstance(order.meta, dict) else {}
     meta["paid_at"] = datetime.datetime.now().isoformat()
-    meta["snap_qr_payment"] = request.model_dump()
+    meta["qris_payment_notification"] = request.model_dump()
     order.meta = meta
     flag_modified(order, "meta")
 
@@ -816,11 +629,95 @@ async def snap_qr_notify(
             logger.warning(f"Failed to update settlement status: {str(e)}")
 
     await db.commit()
-    logger.info(f"SNAP QR Notify: Order {order.order_number} marked as Paid.")
+    logger.info(f"QRIS Payment verified for Order {order.order_number}")
 
     return {
         "responseCode": "2005100",
         "responseMessage": "Successful",
+        "order_id": str(order.id),
+        "order_number": order.order_number,
+        "status": "PAID",
+    }
+
+
+# ==============================================================================
+# Credit Card & Debit Card Callback & Webhook Endpoints
+# ==============================================================================
+
+@router.post(
+    "/card/notify",
+    summary="Debit & Credit Card Payment Notification",
+    description="Callback/webhook endpoint for Debit Card and Credit Card transaction authorization & settlement.",
+)
+@router.post(
+    "/card/callback",
+    summary="Card Payment Callback (Alias)",
+    description="Alias endpoint for card payment notification.",
+)
+async def card_payment_notification(
+    request: CardNotifyRequest,
+    db: AsyncSessionDep,
+) -> dict[str, Any]:
+    ref_candidate = (
+        request.order_number
+        or request.order_id
+        or request.reference_no
+        or request.transaction_id
+        or ""
+    ).strip()
+    ref_clean = ref_candidate.replace("-", "").replace(".", "").lower()
+
+    stmt = select(Order).where(
+        or_(
+            func.lower(func.replace(func.replace(Order.order_number, "-", ""), ".", "")) == ref_clean,
+            func.lower(Order.order_number) == ref_candidate.lower(),
+            cast(Order.id, String) == ref_candidate,
+            cast(Order.meta, String).ilike(f'%"{ref_candidate}"%'),
+        )
+    )
+    result = await db.execute(stmt)
+    order = result.scalar_one_or_none()
+
+    if not order:
+        logger.warning(f"Card Notification: Order not found for reference '{ref_candidate}'")
+        return {
+            "success": False,
+            "message": "Order Not Found",
+        }
+
+    # Mark as Paid
+    order.payment_status = 2  # Paid
+    order.status = Order.STATUS_PROCESSING  # 3: Diproses
+    meta = dict(order.meta) if isinstance(order.meta, dict) else {}
+    meta["paid_at"] = datetime.datetime.now().isoformat()
+    meta["card_payment_notification"] = request.model_dump()
+    order.meta = meta
+    flag_modified(order, "meta")
+
+    if order.settlement_id:
+        try:
+            await db.execute(
+                text("UPDATE settlements SET status = 'success', settlement_date = :sdate, updated_at = :udate WHERE id = :sid"),
+                {
+                    "sdate": datetime.datetime.now(),
+                    "udate": datetime.datetime.now(),
+                    "sid": order.settlement_id,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update settlement status: {str(e)}")
+
+    await db.commit()
+    logger.info(f"Card Payment ({request.card_type or 'CARD'}) verified for Order {order.order_number}")
+
+    return {
+        "success": True,
+        "message": "Card payment processed successfully",
+        "order_id": str(order.id),
+        "order_number": order.order_number,
+        "status": "PAID",
+        "card_type": request.card_type,
+        "masked_card": request.masked_card,
     }
 
 
@@ -830,8 +727,8 @@ async def snap_qr_notify(
 
 @router.post(
     "/simulate-pay/{order_id}",
-    summary="Simulate Order Payment",
-    description="Instantly marks an order as paid for testing and dev workflows without any external payment gateway or webhook.",
+    summary="Simulate Order Payment (Dev/Testing)",
+    description="Instantly marks an order as paid for testing QRIS, Debit, or Credit Card workflows without external webhooks.",
 )
 async def simulate_order_payment(
     order_id: uuid.UUID,
