@@ -98,6 +98,11 @@ class OrderCreate(OrderBase):
 class OrderRead(BaseModel):
     id: UUID
     order_number: str | None = None
+    trx_id: str | None = None
+    settlement_id: str | None = None
+    va_number: str | None = None
+    qr_string: str | None = None
+    qr_code: str | None = None
     customer_id: UUID | None = None
     status: int | None = 1
     status_label: str | None = None

@@ -202,9 +202,17 @@ def _order_to_dict(order: Order, void_data: dict[str, Any] | None = None) -> dic
     )
     payment_status_label = _resolve_payment_status_label(order.payment_status, is_void=is_void)
 
+    meta_dict = order.meta if isinstance(order.meta, dict) else {}
+    trx_id = meta_dict.get("trx_id") or meta_dict.get("reference") or meta_dict.get("espay_reference")
+
     return {
         "id": order.id,
         "order_number": order.order_number,
+        "trx_id": trx_id,
+        "settlement_id": str(order.settlement_id) if getattr(order, "settlement_id", None) else None,
+        "va_number": meta_dict.get("va_number"),
+        "qr_string": meta_dict.get("qr_string"),
+        "qr_code": meta_dict.get("qr_code"),
         "customer_id": order.customer_id,
         "status": order.status,
         "status_label": status_label,
@@ -353,9 +361,17 @@ def _void_order_to_dict(void_order: VoidOrder) -> dict[str, Any]:
     created_at = _safe_datetime(order_data.get("created_at") or void_order.created_at)
     updated_at = _safe_datetime(void_order.voided_at or void_order.updated_at or void_order.created_at)
 
+    void_meta = order_data.get("meta") if isinstance(order_data.get("meta"), dict) else {}
+    void_trx_id = void_meta.get("trx_id") or void_meta.get("reference") or void_meta.get("espay_reference")
+
     return {
         "id": order_id,
         "order_number": order_number,
+        "trx_id": void_trx_id,
+        "settlement_id": str(order_data.get("settlement_id")) if order_data.get("settlement_id") else None,
+        "va_number": void_meta.get("va_number"),
+        "qr_string": void_meta.get("qr_string"),
+        "qr_code": void_meta.get("qr_code"),
         "customer_id": customer_id,
         "status": 5,
         "status_label": "Gagal Transaksi",

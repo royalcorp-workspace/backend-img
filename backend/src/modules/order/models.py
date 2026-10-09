@@ -81,6 +81,36 @@ class Order(Base, TimestampMixin):
         init=False,
     )
 
+    @property
+    def trx_id(self) -> str | None:
+        if isinstance(self.meta, dict):
+            return self.meta.get("trx_id") or self.meta.get("reference") or self.meta.get("espay_reference")
+        return None
+
+    @trx_id.setter
+    def trx_id(self, val: str | None) -> None:
+        if not isinstance(self.meta, dict):
+            self.meta = {}
+        self.meta["trx_id"] = val
+
+    @property
+    def va_number(self) -> str | None:
+        if isinstance(self.meta, dict):
+            return self.meta.get("va_number")
+        return None
+
+    @property
+    def qr_string(self) -> str | None:
+        if isinstance(self.meta, dict):
+            return self.meta.get("qr_string")
+        return None
+
+    @property
+    def qr_code(self) -> str | None:
+        if isinstance(self.meta, dict):
+            return self.meta.get("qr_code")
+        return None
+
 
 class OrderItem(Base, TimestampMixin):
     __tablename__ = "order_items"
