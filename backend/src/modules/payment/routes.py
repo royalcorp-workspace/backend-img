@@ -423,15 +423,30 @@ async def checkout_payment(
                     va_number = payment_data.get('va_number')
                     expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
                     va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
-                reference = payment_data.get('reference', reference)
-                trx_id = reference
+
+                # Ambil TRX ID resmi yang dihasilkan langsung oleh Espay
+                additional_info = payment_data.get('additionalInfo') if isinstance(payment_data.get('additionalInfo'), dict) else {}
+                trx_id = (
+                    payment_data.get('trx_id')
+                    or payment_data.get('referenceNo')
+                    or additional_info.get('referenceNo')
+                    or payment_data.get('reference')
+                    or reference
+                )
+                reference = trx_id
                 payment_url = payment_data.get('payment_url', payment_url)
                 if payment_data.get('qr_string'):
                     qr_string = payment_data.get('qr_string')
+                elif payment_data.get('qrContent'):
+                    qr_string = payment_data.get('qrContent')
                 if payment_data.get('qr_code'):
                     qr_code = payment_data.get('qr_code')
+                elif payment_data.get('qrImage'):
+                    qr_code = payment_data.get('qrImage')
+                elif payment_data.get('qrUrl'):
+                    qr_code = payment_data.get('qrUrl')
                 espay_success = True
-                logger.info(f"Espay SendInvoice succeeded for order {order.order_number}")
+                logger.info(f"Espay SendInvoice succeeded for order {order.order_number}, TRX ID: {trx_id}")
             else:
                 logger.warning(f"Espay SendInvoice unfulfilled. Falling back to native payment generator.")
         except Exception as e:
