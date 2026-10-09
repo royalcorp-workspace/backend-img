@@ -69,13 +69,15 @@ class EspayPaymentData(BaseModel):
     id: str | None = Field(None, example="1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p6")
     order_id: str = Field(..., example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     order_number: str | None = Field(None, example="ORD-20260828-001")
+    trx_id: str | None = Field(None, example="TRX-QRIS-20260828001-1234", description="Unique transaction ID / reference")
+    settlement_id: str | None = Field(None, example="01a01e2f-814e-7325-bc2a-347096fb92c2", description="Linked settlements table ID")
     payment_method: str = Field(..., example="QRISPLUS")
     bank_name: str | None = Field(None, example="Qris Plus")
     type: int | None = Field(None, example=4)
     type_name: str | None = Field(None, example="QRIS")
     amount: float = Field(..., example=2500000.00)
     status: str = Field(..., example="pending")
-    reference: str = Field(..., example="QRIS-IMG-1724808000")
+    reference: str = Field(..., example="TRX-QRIS-20260828001-1234")
     payment_url: str = Field(..., example="/thankyou?order_id=8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
     qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
@@ -89,6 +91,8 @@ class EspayCheckoutResponse(BaseModel):
     success: bool = Field(..., example=True)
     payment: dict[str, Any] | EspayPaymentData
     redirect_url: str = Field(..., example="/thankyou?order_id=8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
+    trx_id: str | None = Field(None, example="TRX-QRIS-20260828001-1234")
+    settlement_id: str | None = Field(None, example="01a01e2f-814e-7325-bc2a-347096fb92c2")
     qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
     qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
     va_number: str | None = Field(None, example=None)
@@ -105,6 +109,7 @@ class QrisNotifyRequest(BaseModel):
     partnerReferenceNo: str | None = Field(None, example="ORD-20260828-001")
     originalPartnerReferenceNo: str | None = None
     referenceNo: str | None = None
+    trxId: str | None = None
     order_id: str | None = None
     amount: SnapAmount | dict[str, Any] | None = None
     additionalInfo: dict[str, Any] | None = None
@@ -115,6 +120,7 @@ class CardNotifyRequest(BaseModel):
     order_number: str | None = Field(None, example="ORD.20261008.0006")
     transaction_id: str | None = Field(None, example="TRX-CC-1724808000")
     reference_no: str | None = None
+    trx_id: str | None = None
     masked_card: str | None = Field(None, example="411111******1111")
     card_type: str | None = Field(None, example="CREDIT", description="CREDIT or DEBIT")
     bank: str | None = Field(None, example="BCA")
@@ -210,12 +216,13 @@ def generate_native_payment_details(
     bank_code: str,
 ) -> dict[str, Any]:
     """
-    Generates native payment details for QRIS, Debit Card, Credit Card, and others
-    without requiring external Espay credentials in .env.
+    Generates native payment details with an explicit unique TRX ID for QRIS,
+    Debit Card, Credit Card, and others without requiring external Espay credentials in .env.
     """
     code_upper = (payment_method.code or "").upper()
     pm_type = payment_method.type
     clean_order_ref = (order.order_number or str(order.id)[:8]).replace("-", "").replace(".", "")
+    random_suffix = random.randint(1000, 9999)
 
     now = datetime.datetime.now()
     va_expired = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -229,31 +236,31 @@ def generate_native_payment_details(
     is_debit_card = (pm_type == 6) or ("DEBIT" in code_upper)
 
     if is_qris:
+        trx_id = f"TRX-QRIS-{clean_order_ref}-{random_suffix}"
         qr_string = f"ID.CO.QRIS.IMG.{clean_order_ref}.{round(float(order.total or 0))}"
         qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
-        reference = f"QRIS-IMG-{int(time.time())}"
         payment_url = f"/thankyou?order_id={order.id}"
     elif is_credit_card:
-        reference = f"CC-IMG-{int(time.time())}"
+        trx_id = f"TRX-CC-{clean_order_ref}-{random_suffix}"
         payment_url = f"/checkout/card-pay?order_id={order.id}&method=credit_card"
     elif is_debit_card:
-        reference = f"DC-IMG-{int(time.time())}"
+        trx_id = f"TRX-DC-{clean_order_ref}-{random_suffix}"
         payment_url = f"/checkout/card-pay?order_id={order.id}&method=debit_card"
     else:
-        # Fallback for other methods
         order_digits = "".join([c for c in clean_order_ref if c.isdigit()])
         if len(order_digits) < 6:
             order_digits = f"{order_digits}{random.randint(100000, 999999)}"
         va_number = f"88{order_digits[-8:]}"
-        reference = f"PAY-IMG-{int(time.time())}"
+        trx_id = f"TRX-VA-{va_number}-{random_suffix}"
         payment_url = f"/thankyou?order_id={order.id}"
 
     return {
+        "trx_id": trx_id,
+        "reference": trx_id,
         "va_number": va_number,
         "va_expired": va_expired,
         "qr_string": qr_string,
         "qr_code": qr_code,
-        "reference": reference,
         "payment_url": payment_url,
     }
 
@@ -266,7 +273,7 @@ def generate_native_payment_details(
     "/checkout",
     response_model=dict[str, Any],
     summary="Checkout Payment (QRIS, Debit, Credit Card)",
-    description="Initiates payment checkout focusing on QRIS, Debit Card, and Credit Card with autonomous fallback if Espay .env is not configured.",
+    description="Initiates payment checkout, saves trx_id and payment identifiers in order.meta and settlements table.",
 )
 @router.post(
     "/espay/checkout",
@@ -366,7 +373,9 @@ async def checkout_payment(
     va_expired = None
     qr_string = None
     qr_code = None
-    reference = f"PAY-IMG-{int(time.time())}"
+    clean_order_ref = (order.order_number or str(order.id)[:8]).replace("-", "").replace(".", "")
+    trx_id = f"TRX-IMG-{clean_order_ref}-{random.randint(1000, 9999)}"
+    reference = trx_id
     payment_url = f"/thankyou?order_id={order.id}"
     espay_success = False
 
@@ -410,7 +419,12 @@ async def checkout_payment(
                 expired_date_dt = datetime.datetime.strptime(rq_datetime, "%Y-%m-%d %H:%M:%S") + datetime.timedelta(minutes=1440)
                 va_expired = expired_date_dt.strftime("%Y-%m-%d %H:%M:%S")
                 reference = payment_data.get('reference', reference)
+                trx_id = reference
                 payment_url = payment_data.get('payment_url', payment_url)
+                if payment_data.get('qr_string'):
+                    qr_string = payment_data.get('qr_string')
+                if payment_data.get('qr_code'):
+                    qr_code = payment_data.get('qr_code')
                 espay_success = True
                 logger.info(f"Espay SendInvoice succeeded for order {order.order_number}")
             else:
@@ -421,20 +435,58 @@ async def checkout_payment(
     if not espay_success:
         logger.info(f"Using IMG native payment generator for {payment_method.code} (Order {order.order_number or order.id})")
         native_details = generate_native_payment_details(order, payment_method, espay_bank_code)
+        trx_id = native_details["trx_id"]
+        reference = native_details["reference"]
         va_number = native_details["va_number"]
         va_expired = native_details["va_expired"]
         qr_string = native_details["qr_string"]
         qr_code = native_details["qr_code"]
-        reference = native_details["reference"]
         payment_url = native_details["payment_url"]
 
-    # 5. Update Order in DB
+    # 5. Record / Update Settlement in database table 'settlements'
+    settlement_id = order.settlement_id
+    try:
+        settlement_ref = order.order_number or str(order.id)
+        settlement_res = await db.execute(
+            text(
+                """
+                INSERT INTO settlements (id, reference_id, gross_amount, fee_amount, net_amount, status, notes, created_at, updated_at)
+                VALUES (gen_random_uuid(), :ref_id, :gross, :fee, :net, 'pending', :notes, NOW(), NOW())
+                ON CONFLICT (reference_id) DO UPDATE SET
+                    gross_amount = EXCLUDED.gross_amount,
+                    fee_amount = EXCLUDED.fee_amount,
+                    net_amount = EXCLUDED.net_amount,
+                    notes = EXCLUDED.notes,
+                    updated_at = NOW()
+                RETURNING id;
+                """
+            ),
+            {
+                "ref_id": settlement_ref,
+                "gross": float(order.total or 0.0),
+                "fee": float(order.transaction_fee or 0.0),
+                "net": float(order.total or 0.0),
+                "notes": f"Payment via {payment_method.code} (TRX ID: {trx_id})",
+            },
+        )
+        settlement_id = settlement_res.scalar()
+    except Exception as e:
+        logger.warning(f"Failed to upsert settlement record: {str(e)}")
+
+    # 6. Update Order in DB
     order.payment_method = payment_method.code
     order.payment_status = 1  # Pending
+    if settlement_id:
+        order.settlement_id = settlement_id
+
+    # Store all transaction codes (trx_id, va_number, qr_string, references) cleanly in order.meta
     meta = dict(order.meta) if isinstance(order.meta, dict) else {}
+    meta['trx_id'] = trx_id
+    meta['reference'] = reference
     meta['espay_reference'] = reference
     meta['payment_method_code'] = payment_method.code
     meta['payment_method_type'] = payment_method.type
+    meta['settlement_id'] = str(settlement_id) if settlement_id else None
     if va_number:
         meta['va_number'] = va_number
         meta['va_expired'] = va_expired
@@ -444,7 +496,7 @@ async def checkout_payment(
     order.meta = meta
     flag_modified(order, "meta")
 
-    # 6. Clean up AddToCart if requested
+    # 7. Clean up AddToCart if requested
     target_cart_ids: list[uuid.UUID] = []
     if request.add_to_cart_id:
         target_cart_ids.append(request.add_to_cart_id)
@@ -492,6 +544,8 @@ async def checkout_payment(
         "id": str(order.id),
         "order_id": str(order.id),
         "order_number": order.order_number,
+        "trx_id": trx_id,
+        "settlement_id": str(settlement_id) if settlement_id else None,
         "payment_method": payment_method.code,
         "bank_name": bank_name,
         "type": payment_method.type,
@@ -512,6 +566,8 @@ async def checkout_payment(
         "success": True,
         "payment": payment_result,
         "redirect_url": payment_url,
+        "trx_id": trx_id,
+        "settlement_id": str(settlement_id) if settlement_id else None,
         "qr_string": qr_string,
         "qr_code": qr_code,
         "va_number": va_number,
@@ -583,6 +639,7 @@ async def qris_payment_notification(
         request.partnerReferenceNo
         or request.originalPartnerReferenceNo
         or request.referenceNo
+        or request.trxId
         or request.order_id
         or ""
     ).strip()
@@ -636,6 +693,7 @@ async def qris_payment_notification(
         "responseMessage": "Successful",
         "order_id": str(order.id),
         "order_number": order.order_number,
+        "trx_id": meta.get("trx_id"),
         "status": "PAID",
     }
 
@@ -663,6 +721,7 @@ async def card_payment_notification(
         or request.order_id
         or request.reference_no
         or request.transaction_id
+        or request.trx_id
         or ""
     ).strip()
     ref_clean = ref_candidate.replace("-", "").replace(".", "").lower()
@@ -715,6 +774,7 @@ async def card_payment_notification(
         "message": "Card payment processed successfully",
         "order_id": str(order.id),
         "order_number": order.order_number,
+        "trx_id": meta.get("trx_id"),
         "status": "PAID",
         "card_type": request.card_type,
         "masked_card": request.masked_card,
@@ -769,6 +829,7 @@ async def simulate_order_payment(
         "message": f"Order {order.order_number or order.id} successfully marked as paid.",
         "order_id": str(order.id),
         "order_number": order.order_number,
+        "trx_id": meta.get("trx_id"),
         "payment_status": order.payment_status,
         "status": order.status,
         "is_paid": True,
