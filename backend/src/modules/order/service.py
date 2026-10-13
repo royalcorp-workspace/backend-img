@@ -204,6 +204,11 @@ def _order_to_dict(order: Order, void_data: dict[str, Any] | None = None) -> dic
 
     meta_dict = order.meta if isinstance(order.meta, dict) else {}
     trx_id = meta_dict.get("trx_id") or meta_dict.get("reference") or meta_dict.get("espay_reference")
+    qr_string = meta_dict.get("qr_string")
+    qr_code = meta_dict.get("qr_code") or meta_dict.get("qr_url")
+    if (not qr_code or not str(qr_code).startswith("http")) and qr_string:
+        import urllib.parse
+        qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(str(qr_string))}"
 
     return {
         "id": order.id,
@@ -211,8 +216,9 @@ def _order_to_dict(order: Order, void_data: dict[str, Any] | None = None) -> dic
         "trx_id": trx_id,
         "settlement_id": str(order.settlement_id) if getattr(order, "settlement_id", None) else None,
         "va_number": meta_dict.get("va_number"),
-        "qr_string": meta_dict.get("qr_string"),
-        "qr_code": meta_dict.get("qr_code"),
+        "qr_string": qr_string,
+        "qr_code": qr_code,
+        "qr_url": qr_code,
         "customer_id": order.customer_id,
         "status": order.status,
         "status_label": status_label,
@@ -363,6 +369,11 @@ def _void_order_to_dict(void_order: VoidOrder) -> dict[str, Any]:
 
     void_meta = order_data.get("meta") if isinstance(order_data.get("meta"), dict) else {}
     void_trx_id = void_meta.get("trx_id") or void_meta.get("reference") or void_meta.get("espay_reference")
+    void_qr_string = void_meta.get("qr_string")
+    void_qr_code = void_meta.get("qr_code") or void_meta.get("qr_url")
+    if (not void_qr_code or not str(void_qr_code).startswith("http")) and void_qr_string:
+        import urllib.parse
+        void_qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(str(void_qr_string))}"
 
     return {
         "id": order_id,
@@ -370,8 +381,9 @@ def _void_order_to_dict(void_order: VoidOrder) -> dict[str, Any]:
         "trx_id": void_trx_id,
         "settlement_id": str(order_data.get("settlement_id")) if order_data.get("settlement_id") else None,
         "va_number": void_meta.get("va_number"),
-        "qr_string": void_meta.get("qr_string"),
-        "qr_code": void_meta.get("qr_code"),
+        "qr_string": void_qr_string,
+        "qr_code": void_qr_code,
+        "qr_url": void_qr_code,
         "customer_id": customer_id,
         "status": 5,
         "status_label": "Gagal Transaksi",

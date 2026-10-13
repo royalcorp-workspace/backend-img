@@ -85,6 +85,7 @@ class EspayPaymentData(BaseModel):
     payment_url: str = Field(..., example="/thankyou?order_id=8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
     qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
     qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
+    qr_url: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
     va_number: str | None = Field(None, example=None)
     va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
     cara_bayar: list[str] | None = Field(None)
@@ -99,6 +100,7 @@ class EspayCheckoutResponse(BaseModel):
     settlement_id: str | None = Field(None, example="01a01e2f-814e-7325-bc2a-347096fb92c2")
     qr_string: str | None = Field(None, example="ID.CO.QRIS.IMG.ORD001.250000")
     qr_code: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
+    qr_url: str | None = Field(None, example="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=...")
     va_number: str | None = Field(None, example=None)
     va_expired: str | None = Field(None, example="2026-09-02 10:00:00")
 
@@ -454,7 +456,17 @@ async def checkout_payment(
                             trx_id = query_params['trx_id'][0]
                     reference = trx_id
                     qr_string = payment_data.get('qrContent') or payment_data.get('qr_string')
-                    qr_code = payment_data.get('qrImage') or payment_data.get('qrUrl') or payment_data.get('qr_code')
+
+                    # Prioritize direct image URL link so endpoint only loads image link
+                    qr_url_candidate = payment_data.get('qrUrl') or payment_data.get('qr_url')
+                    if qr_url_candidate and str(qr_url_candidate).startswith('http'):
+                        qr_code = str(qr_url_candidate)
+                    elif payment_data.get('qr_code') and str(payment_data.get('qr_code')).startswith('http'):
+                        qr_code = str(payment_data.get('qr_code'))
+                    elif qr_string:
+                        qr_code = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
+                    else:
+                        qr_code = payment_data.get('qrImage') or payment_data.get('qr_code')
                     payment_url = f"/thankyou?order_id={order.id}"
                     espay_success = True
                     logger.info(f"SNAP QRIS MPM succeeded for order {order.order_number}, TRX ID: {trx_id}")
@@ -656,7 +668,9 @@ async def checkout_payment(
         meta['va_expired'] = va_expired
     if qr_string:
         meta['qr_string'] = qr_string
+    if qr_code:
         meta['qr_code'] = qr_code
+        meta['qr_url'] = qr_code
     order.meta = meta
     flag_modified(order, "meta")
 
@@ -721,6 +735,7 @@ async def checkout_payment(
         "cara_bayar": cara_bayar,
         "qr_string": qr_string,
         "qr_code": qr_code,
+        "qr_url": qr_code,
         "va_number": va_number,
         "va_expired": va_expired,
         "payment_method_detail": payment_method_detail,
@@ -734,6 +749,7 @@ async def checkout_payment(
         "settlement_id": str(settlement_id) if settlement_id else None,
         "qr_string": qr_string,
         "qr_code": qr_code,
+        "qr_url": qr_code,
         "va_number": va_number,
         "va_expired": va_expired,
     }

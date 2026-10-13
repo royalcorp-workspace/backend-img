@@ -103,6 +103,7 @@ class OrderRead(BaseModel):
     va_number: str | None = None
     qr_string: str | None = None
     qr_code: str | None = None
+    qr_url: str | None = None
     customer_id: UUID | None = None
     status: int | None = 1
     status_label: str | None = None

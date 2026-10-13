@@ -108,8 +108,19 @@ class Order(Base, TimestampMixin):
     @property
     def qr_code(self) -> str | None:
         if isinstance(self.meta, dict):
-            return self.meta.get("qr_code")
+            val = self.meta.get("qr_code") or self.meta.get("qr_url")
+            if val and str(val).startswith("http"):
+                return str(val)
+            qr_str = self.meta.get("qr_string")
+            if qr_str:
+                import urllib.parse
+                return f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(str(qr_str))}"
+            return val
         return None
+
+    @property
+    def qr_url(self) -> str | None:
+        return self.qr_code
 
 
 class OrderItem(Base, TimestampMixin):
