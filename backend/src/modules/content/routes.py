@@ -169,6 +169,14 @@ async def get_active_events(db: AsyncSessionDep):
 
 @router.get('/notifications', summary='Get Broadcast Notifications', description='Get latest notifications', tags=['Content: App Layout'])
 async def get_notifications(db: AsyncSessionDep):
-    stmt = select(Notification).where(Notification.is_broadcast == True).order_by(Notification.created_at.desc()).limit(20)
+    stmt = (
+        select(Notification)
+        .where(
+            Notification.is_broadcast == True,
+            or_(Notification.type == None, Notification.type != 'stock_alert'),
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(20)
+    )
     result = await db.execute(stmt)
     return {'success': True, 'data': result.scalars().all()}

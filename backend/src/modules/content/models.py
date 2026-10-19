@@ -260,4 +260,5 @@ class Notification(Base, TimestampMixin):
     link_url: Mapped[str | None] = mapped_column(String(255), default=None)
     is_broadcast: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, init=False)
+    type: Mapped[str | None] = mapped_column(String(50), default=None)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
