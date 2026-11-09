@@ -123,7 +123,7 @@ class QrisNotifyRequest(BaseModel):
 
 class CardNotifyRequest(BaseModel):
     order_id: str | None = Field(None, example="8f30c3a2-b911-4a4b-841a-e4b51a5c6d70")
-    order_number: str | None = Field(None, example="ORD.20261008.0006")
+    order_number: str | None = Field(None, example="IMG260001")
     transaction_id: str | None = Field(None, example="TRX-CC-1724808000")
     reference_no: str | None = None
     trx_id: str | None = None

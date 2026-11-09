@@ -634,6 +634,10 @@ class AddToCartService:
         now = datetime.datetime.now()
         order_number = await OrderService.generate_order_number(db, now.date())
 
+        order_meta = dict(checkout_in.meta or add_to_cart.meta or {})
+        if "platform" not in order_meta:
+            order_meta["platform"] = "mobile_app"
+
         order = Order(
             order_number=order_number,
             order_date=now.date(),
@@ -648,7 +652,7 @@ class AddToCartService:
             discount=add_to_cart.discount or 0.0,
             total=add_to_cart.total or 0.0,
             notes=checkout_in.notes,
-            meta=checkout_in.meta or add_to_cart.meta,
+            meta=order_meta,
             creator=creator_id,
             editor=creator_id,
         )

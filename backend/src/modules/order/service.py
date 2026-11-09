@@ -1364,28 +1364,32 @@ class OrderService:
 
     @staticmethod
     async def generate_order_number(db: AsyncSession, target_date: datetime.date | None = None) -> str:
-        """Generate sequential order number in format: ORD.YYYYMMDD.0001 (resets daily)."""
+        """Generate sequential order number in format: IMG260001 (resets yearly, 26 is 2-digit year)."""
         date_val = target_date or datetime.date.today()
-        prefix = f"ORD.{date_val.strftime('%Y%m%d')}."
+        year_2_digit = date_val.strftime("%y")
+        prefix = f"IMG{year_2_digit}"
 
         stmt = text(
-            "SELECT order_number FROM orders "
-            "WHERE LOWER(order_number) LIKE :prefix "
-            "ORDER BY LENGTH(SPLIT_PART(order_number, '.', 3)) DESC, SPLIT_PART(order_number, '.', 3) DESC "
-            "LIMIT 1"
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(order_number FROM '^' || :prefix || '([0-9]+)$') AS BIGINT)), 0) "
+            "FROM sales.orders "
+            "WHERE order_number LIKE :like_pattern"
         )
-        result = await db.execute(stmt, {"prefix": f"{prefix.lower()}%"})
-        last_order_number = result.scalar_one_or_none()
+        result = await db.execute(stmt, {"prefix": prefix, "like_pattern": f"{prefix}%"})
+        max_seq = result.scalar() or 0
 
-        next_seq = 1
-        if last_order_number:
-            try:
-                last_seq = int(last_order_number.split(".")[-1])
-                next_seq = last_seq + 1
-            except (ValueError, IndexError):
-                next_seq = 1
+        next_seq = int(max_seq) + 1
+        order_number = f"{prefix}{next_seq:04d}"
 
-        return f"{prefix}{next_seq:04d}"
+        # Safety collision check
+        while True:
+            check_stmt = text("SELECT 1 FROM sales.orders WHERE order_number = :ord_num LIMIT 1")
+            check_result = await db.execute(check_stmt, {"ord_num": order_number})
+            if not check_result.scalar_one_or_none():
+                break
+            next_seq += 1
+            order_number = f"{prefix}{next_seq:04d}"
+
+        return order_number
 
     async def create(self, db: AsyncSession, order_in: OrderCreate) -> Any:
         order_data = order_in.model_dump(
